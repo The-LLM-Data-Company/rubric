@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "rubric"
-version = "1.2.4"
+version = "1.2.5"
 description = "rubric"
 readme = "README.md"
 requires-python = ">=3.10"

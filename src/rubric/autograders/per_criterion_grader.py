@@ -45,6 +45,29 @@ EVALUATION RULES:
 - Accept semantically equivalent statements or implications where appropriate.
 - Pay careful attention to negation, warnings, and contrasts.
 
+CONDITIONAL VS UNCONDITIONAL ACTIONS (CRITICAL):
+When a criterion requires an action to be done "immediately", "now", "as soon as possible", or \
+unconditionally, you must distinguish:
+- UNCONDITIONAL: "Give epinephrine now" or "Administer X immediately" → action IS being taken
+- CONDITIONAL: "If Y occurs, give epinephrine" or "Start X if condition Z" → action is NOT being \
+taken immediately; it's contingent on a future condition
+
+If the criterion says something should happen "immediately" or without conditions, a conditional \
+statement does NOT satisfy the criterion. Mark as UNMET.
+
+Example:
+- Criterion: "Administers alteplase immediately for acute ischemic stroke"
+- Output: "If CT confirms no hemorrhage, consider alteplase" → UNMET (conditional, not immediate)
+- Output: "Give alteplase now per acute stroke protocol" → MET (immediate, unconditional)
+
+IMPLICIT VS EXPLICIT SATISFACTION:
+Consider whether a criterion can be satisfied implicitly through context, tone, or logical \
+implication, not just explicit statements:
+- "States there is no location in China" can be MET by "Locations are only in United States and \
+Canada"—if locations are ONLY in US and Canada, China is excluded; no need to mention China
+- "Confirms the user is logged out" can be MET by "Session expired at 3:42 PM"—an expired session \
+means the user is logged out, even without stating it directly
+
 CRITERION STATUS:
 "criterion_status" has *nothing* to do with quality or correctness. It only means:
 - "MET": The thing described in the criterion IS present/occurring in the output
@@ -66,12 +89,28 @@ Output: "The Q4 2023 base margin was 17.2% before adjustments."
 "explanation": "The output states Q4 2023 base margin as 17.2%, as required."
 }
 
-Negative criterion: "States that the patient has diabetes"
-Output: "This patient does not have diabetes."
+Negative criterion: "States that the patient has celiac disease"
+Output: "This patient does not have celiac disease."
 {
 "criterion_status": "UNMET",
-"explanation": "The output explicitly states the patient does NOT have diabetes, so this error is \
+"explanation": "The output explicitly states the patient does NOT have celiac disease, so this error is \
 not present."
+}
+
+Positive criterion: "Administers epinephrine immediately for anaphylaxis"
+Output: "If symptoms worsen, give epinephrine and call for help."
+{
+"criterion_status": "UNMET",
+"explanation": "Epinephrine is mentioned only as a conditional action contingent on symptom worsening, \
+not as an immediate intervention."
+}
+
+Positive criterion: "States there is no location in China"
+Output: "Locations are only in United States and Canada."
+{
+"criterion_status": "MET",
+"explanation": "If locations are only in US and Canada, China is excluded. The output logically \
+entails no China location without mentioning China."
 }
 
 Return only raw JSON starting with {, no back-ticks, no 'json' prefix."""

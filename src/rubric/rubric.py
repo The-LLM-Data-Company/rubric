@@ -7,7 +7,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from rubric.autograders import Autograder, PerCriterionOneShotGrader
+from rubric.autograders import Autograder, PerCriterionGrader
 from rubric.types import Criterion, EvaluationReport
 from rubric.utils import default_generate_fn
 
@@ -30,7 +30,7 @@ class Rubric:
     ) -> EvaluationReport:
         """Grade text against this rubric using an autograder class or function."""
         if autograder is None:
-            autograder = PerCriterionOneShotGrader(generate_fn=default_generate_fn)
+            autograder = PerCriterionGrader(generate_fn=default_generate_fn)
         return await autograder.grade(to_grade=to_grade, rubric=self.rubric)
 
     @staticmethod

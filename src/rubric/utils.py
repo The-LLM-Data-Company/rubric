@@ -2,7 +2,8 @@ import json
 import os
 import re
 
-from openai import AsyncOpenAI
+from google import genai
+from google.genai import types
 
 
 def parse_json_to_dict(json_string: str) -> dict:
@@ -20,13 +21,13 @@ def parse_json_to_dict(json_string: str) -> dict:
 
 
 async def default_generate_fn(system_prompt: str, user_prompt: str) -> str:
-    """Generate a response from the OpenAI API."""
-    client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    response = await client.chat.completions.create(
-        model="gpt-5-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
+    """Generate a response from the Gemini API."""
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    response = await client.aio.models.generate_content(
+        model="gemini-3-pro-preview",
+        contents=user_prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+        ),
     )
-    return response.choices[0].message.content or ""
+    return response.text or ""

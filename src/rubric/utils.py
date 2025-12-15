@@ -28,6 +28,7 @@ async def default_generate_fn(system_prompt: str, user_prompt: str) -> str:
         contents=user_prompt,
         config=types.GenerateContentConfig(
             system_instruction=system_prompt,
+            temperature=0,
         ),
     )
     return response.text or ""

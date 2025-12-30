@@ -4,7 +4,7 @@ import asyncio
 import json
 
 from rubric.autograders import Autograder
-from rubric.types import Criterion, CriterionReport, EvaluationReport, GenerateFn
+from rubric.types import Criterion, CriterionReport, EvaluationReport, GenerateFn, LengthPenalty
 from rubric.utils import default_generate_fn, parse_json_to_dict
 
 DEFAULT_SYSTEM_PROMPT = """You are evaluating an output for a given query against a single \
@@ -124,8 +124,9 @@ class PerCriterionGrader(Autograder):
         generate_fn: GenerateFn = default_generate_fn,
         *,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+        length_penalty: LengthPenalty | None = None,
     ):
-        super().__init__(generate_fn=generate_fn)
+        super().__init__(generate_fn=generate_fn, length_penalty=length_penalty)
         self.system_prompt = system_prompt
 
     async def _judge_single_criterion(

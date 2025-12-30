@@ -28,7 +28,14 @@ class Rubric:
         autograder: Autograder | None = None,
         **kwargs: Any,
     ) -> EvaluationReport:
-        """Grade text against this rubric using an autograder class or function."""
+        """Grade text against this rubric using an autograder.
+
+        Args:
+            to_grade: The text to evaluate.
+            autograder: Optional autograder to use. Defaults to PerCriterionGrader.
+                Configure length_penalty on the autograder if needed.
+            **kwargs: Additional arguments (unused).
+        """
         if autograder is None:
             autograder = PerCriterionGrader(generate_fn=default_generate_fn)
         return await autograder.grade(to_grade=to_grade, rubric=self.rubric)

@@ -40,7 +40,8 @@ class CriterionReport(Criterion):
 Final grading result:
 ```python
 class EvaluationReport(BaseModel):
-    score: float                              # Normalized 0-1
+    score: float                              # Normalized 0-1 (or raw if normalize=False)
+    raw_score: float | None                   # Always contains the unnormalized weighted sum
     report: list[CriterionReport] | None      # Per-criterion details (if available)
 ```
 
@@ -67,6 +68,7 @@ def __init__(
     *,
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,     # Customizable system prompt
     length_penalty: LengthPenalty | None = None,    # Optional length penalty config
+    normalize: bool = True,                          # If False, return raw weighted sums
 ):
 ```
 
@@ -105,11 +107,41 @@ weighted_sum = sum((1.0 if verdict == "MET" else 0.0) * c.weight for c in criter
 score = max(0.0, min(1.0, weighted_sum / total_positive_weight))
 ```
 
-**Important**: The length penalty is applied **after** this calculation and can only reduce the score.
+**Important**: The length penalty is applied **after** this calculation.
+
+### Raw Scores for Training (normalize=False)
+
+For RL training scenarios, normalized 0-1 scores can make optimization artificially difficult. Pass `normalize=False` to get raw weighted sums:
+
+```python
+grader = PerCriterionGrader(normalize=False)
+result = await rubric.grade(response, autograder=grader)
+# result.score = raw weighted sum (can be negative if many negative criteria are MET)
+# result.raw_score = same as score when normalize=False
+```
+
+With normalized scores (default):
+```python
+# A rubric with weights [10, 5, -3]
+# If all positive criteria MET, no negative criteria MET:
+# weighted_sum = 10 + 5 + 0 = 15
+# score = 15 / 15 = 1.0 (normalized)
+# raw_score = 15 (always available)
+```
+
+With raw scores:
+```python
+grader = PerCriterionGrader(normalize=False)
+# Same scenario:
+# score = 15 (raw weighted sum)
+# raw_score = 15
+```
+
+The `raw_score` field is **always populated** regardless of the `normalize` setting, giving you access to both views.
 
 ## Length Penalty
 
-Length penalty discourages excessively verbose outputs during training. It is configured on the **autograder constructor** and is applied **after** the base grade calculation. The penalty **only subtracts** from the score (never adds).
+Length penalty discourages excessively verbose outputs during training. It is configured on the **autograder constructor** and is applied **after** the base grade calculation. The penalty is **subtracted** from the score.
 
 ### Configuration
 
@@ -117,10 +149,14 @@ Length penalty discourages excessively verbose outputs during training. It is co
 class LengthPenalty(BaseModel):
     free_budget: int = 6000        # No penalty below this count
     max_cap: int = 8000            # Maximum penalty at/above this count
-    penalty_at_cap: float = 0.5    # Max penalty (0.5 = lose up to 50% of score)
+    penalty_at_cap: float = 0.5    # Max penalty to subtract from score
     exponent: float = 1.6          # Curve steepness (higher = more lenient near budget)
     count_fn: CountFn | None = None  # Custom counting function
 ```
+
+For **normalized scores** (0-1), use fractional `penalty_at_cap` values like `0.5` (lose up to 50% of score).
+
+For **raw scores** (training), use absolute `penalty_at_cap` values like `50.0` (subtract up to 50 points from raw score).
 
 ### Penalty Formula
 
@@ -192,8 +228,70 @@ result = await rubric.grade(response, autograder=grader)
 1. **Length penalty only subtracts** - it cannot increase the score
 2. **Configured on autograder** - pass `length_penalty` to the autograder constructor
 3. **Applied after aggregation** - the base rubric score is computed first, then penalty is subtracted
-4. **Final score is clamped to 0** - `max(0.0, score - penalty)`
+4. **Final score is clamped to 0** - `max(0.0, score - penalty)` when normalized
 5. **Configurable curve** - the exponent controls how quickly penalty ramps up after free_budget
+
+## Training / RL Use Cases
+
+For reinforcement learning training, you typically want raw (unnormalized) scores that can be positive or negative, rather than everything squeezed into 0-1. The rubric package supports this via the `normalize` parameter.
+
+### Basic Training Setup
+
+```python
+from transformers import AutoTokenizer
+from rubric import Rubric, LengthPenalty
+from rubric.autograders import PerCriterionGrader
+
+# Load tokenizer for accurate token counting
+tokenizer = AutoTokenizer.from_pretrained("your-model")
+
+# Configure for training: raw scores + absolute length penalty
+grader = PerCriterionGrader(
+    generate_fn=your_llm_fn,
+    normalize=False,  # Return raw weighted sums
+    length_penalty=LengthPenalty(
+        free_budget=8000,      # 8000 tokens free
+        max_cap=10000,         # Max penalty at 10000 tokens
+        penalty_at_cap=50.0,   # Subtract up to 50 points (absolute)
+        exponent=1.6,
+        count_fn=lambda text: len(tokenizer.encode(text, add_special_tokens=False))
+    )
+)
+
+rubric = Rubric.from_file("rubric.yaml")
+result = await rubric.grade(response, autograder=grader)
+
+# result.score = raw weighted sum - length penalty
+# result.raw_score = raw weighted sum (before length penalty)
+```
+
+### Batch Processing
+
+For batch reward computation during training:
+
+```python
+async def compute_rewards_batch(
+    responses: list[str],
+    rubrics: list[Rubric],
+    queries: list[str] | None = None,
+) -> list[float]:
+    tasks = []
+    for i, (response, rubric) in enumerate(zip(responses, rubrics)):
+        query = queries[i] if queries else None
+        tasks.append(rubric.grade(response, autograder=grader, query=query))
+    
+    results = await asyncio.gather(*tasks)
+    return [r.score for r in results]
+```
+
+### Key Differences from Normalized Mode
+
+| Aspect | Normalized (default) | Training (normalize=False) |
+|--------|---------------------|---------------------------|
+| Score range | 0.0 to 1.0 | Can be negative or > 1 |
+| Length penalty | Fractional (e.g., 0.5) | Absolute (e.g., 50.0) |
+| Clamping | Score clamped to [0, 1] | No clamping |
+| Use case | Evaluation, reporting | RL reward signals |
 
 ## Creating Custom Autograders
 

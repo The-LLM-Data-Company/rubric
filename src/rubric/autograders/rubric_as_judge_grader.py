@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from rubric.autograders import Autograder
-from rubric.types import Criterion, EvaluationReport, GenerateFn
+from rubric.types import Criterion, EvaluationReport, GenerateFn, LengthPenalty
 from rubric.utils import default_generate_fn, parse_json_to_dict
 
 DEFAULT_SYSTEM_PROMPT = """You are evaluating an output for a given query against a list of \
@@ -84,8 +84,10 @@ class RubricAsJudgeGrader(Autograder):
         generate_fn: GenerateFn = default_generate_fn,
         *,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+        length_penalty: LengthPenalty | None = None,
+        normalize: bool = True,
     ):
-        super().__init__(generate_fn=generate_fn)
+        super().__init__(generate_fn=generate_fn, length_penalty=length_penalty, normalize=normalize)
         self.system_prompt = system_prompt
 
     async def judge(
@@ -129,7 +131,14 @@ Return your evaluation as JSON only."""
 
         return overall_score
 
-    async def aggregate(self, judge_results: float) -> EvaluationReport:
-        normalized_score = judge_results / 100.0
-        clamped_score = max(0.0, min(1.0, normalized_score))
-        return EvaluationReport(score=clamped_score, report=None)
+    async def aggregate(
+        self, judge_results: float, *, normalize: bool = True
+    ) -> EvaluationReport:
+        raw_score = judge_results
+
+        if normalize:
+            score = max(0.0, min(1.0, judge_results / 100.0))
+        else:
+            score = raw_score
+
+        return EvaluationReport(score=score, raw_score=raw_score, report=None)

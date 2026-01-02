@@ -26,12 +26,21 @@ class Rubric:
         self,
         to_grade: str,
         autograder: Autograder | None = None,
+        query: str | None = None,
         **kwargs: Any,
     ) -> EvaluationReport:
-        """Grade text against this rubric using an autograder class or function."""
+        """Grade text against this rubric using an autograder.
+
+        Args:
+            to_grade: The text to evaluate.
+            autograder: Optional autograder to use. Defaults to PerCriterionGrader.
+                Configure length_penalty and normalize on the autograder if needed.
+            query: Optional input/query that prompted the response.
+            **kwargs: Additional arguments (unused).
+        """
         if autograder is None:
             autograder = PerCriterionGrader(generate_fn=default_generate_fn)
-        return await autograder.grade(to_grade=to_grade, rubric=self.rubric)
+        return await autograder.grade(to_grade=to_grade, rubric=self.rubric, query=query)
 
     @staticmethod
     def validate_and_create_criteria(

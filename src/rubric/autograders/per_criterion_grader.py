@@ -4,7 +4,7 @@ import asyncio
 import json
 
 from rubric.autograders import Autograder
-from rubric.types import Criterion, CriterionReport, EvaluationReport, GenerateFn
+from rubric.types import Criterion, CriterionReport, EvaluationReport, GenerateFn, LengthPenalty
 from rubric.utils import default_generate_fn, parse_json_to_dict
 
 DEFAULT_SYSTEM_PROMPT = """You are evaluating an output for a given query against a single \
@@ -124,8 +124,10 @@ class PerCriterionGrader(Autograder):
         generate_fn: GenerateFn = default_generate_fn,
         *,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+        length_penalty: LengthPenalty | None = None,
+        normalize: bool = True,
     ):
-        super().__init__(generate_fn=generate_fn)
+        super().__init__(generate_fn=generate_fn, length_penalty=length_penalty, normalize=normalize)
         self.system_prompt = system_prompt
 
     async def _judge_single_criterion(
@@ -182,20 +184,23 @@ class PerCriterionGrader(Autograder):
         ]
         return list(await asyncio.gather(*criterion_tasks))
 
-    async def aggregate(self, judge_results: list[CriterionReport]) -> EvaluationReport:
-        score = 0.0
-        max_score = 1.0
-
+    async def aggregate(
+        self, judge_results: list[CriterionReport], *, normalize: bool = True
+    ) -> EvaluationReport:
         total_positive_weight = sum(max(0.0, report.weight) for report in judge_results)
         weighted_score_sum = sum(
             (1.0 if report.verdict == "MET" else 0.0) * report.weight for report in judge_results
         )
 
-        if total_positive_weight > 0:
-            raw_score = weighted_score_sum / total_positive_weight
-            score = max(0.0, min(max_score, raw_score))
+        raw_score = weighted_score_sum
+
+        if normalize and total_positive_weight > 0:
+            score = max(0.0, min(1.0, weighted_score_sum / total_positive_weight))
+        else:
+            score = raw_score
 
         return EvaluationReport(
             score=score,
+            raw_score=raw_score,
             report=judge_results,
         )

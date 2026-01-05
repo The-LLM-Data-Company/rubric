@@ -179,8 +179,11 @@ Provide your evaluation as JSON only."""
 
         raw_score = weighted_score_sum
 
-        if normalize and total_positive_weight > 0:
-            score = max(0.0, min(1.0, weighted_score_sum / total_positive_weight))
+        if normalize:
+            if total_positive_weight > 0:
+                score = max(0.0, min(1.0, weighted_score_sum / total_positive_weight))
+            else:
+                score = 0.0
         else:
             score = raw_score
 

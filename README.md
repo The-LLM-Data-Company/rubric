@@ -114,6 +114,19 @@ Where:
 - Numerator = sum of weights for MET criteria
 - Result clamped to [0, 1]
 
+**All-Negative Criteria Rubrics:**
+
+For rubrics containing only negative criteria (e.g., error detection rubrics), a different formula is used:
+
+$$
+\text{score} = \max\left(0, \min\left(1, 1 + \frac{\sum_{i=1}^{n} \mathbb{1}[\text{verdict}_i = \text{MET}] \cdot w_i}{\sum_{i=1}^{n} |w_i|}\right)\right)
+$$
+
+This ensures:
+- Score = 1.0 when all errors are avoided (all criteria UNMET)
+- Score = 0.0 when all errors are present (all criteria MET)
+- Proportional scores for partial error presence
+
 ### PerCriterionOneShotGrader
 
 PerCriterionOneShotGrader makes 1 inference call that evaluates all criteria together and returns a structured output, unlike PerCriterionGrader which makes $n$ inference calls.
@@ -185,6 +198,30 @@ Subclass any autograder and override:
 
 **3. Full control**
 Override the entire `grade()` method for complete end-to-end control over the grading process.
+
+## Error Handling
+
+### Parse Failure Behavior
+
+When the LLM returns invalid JSON or the response cannot be parsed, the autograders use **conservative defaults** to avoid biasing scores:
+
+| Criterion Type | Default Verdict | Rationale |
+|----------------|-----------------|-----------|
+| Positive (weight > 0) | UNMET | Assume requirement not met |
+| Negative (weight < 0) | MET | Assume error is present |
+
+This ensures parse failures result in worst-case scores rather than artificially inflating results. For example, if an error-detection rubric has many negative criteria, parse failures won't incorrectly report "no errors found."
+
+```python
+# Example: Parse failure with mixed rubric
+rubric = Rubric([
+    Criterion(weight=1.0, requirement="Is helpful"),      # → UNMET on parse failure
+    Criterion(weight=-1.0, requirement="Contains errors"), # → MET on parse failure
+])
+
+# If LLM returns invalid JSON, score = 0.0 (worst case)
+# rather than being artificially inflated
+```
 
 ## Loading Rubrics
 

@@ -173,6 +173,9 @@ Provide your evaluation as JSON only."""
         self, judge_results: list[CriterionReport], *, normalize: bool = True
     ) -> EvaluationReport:
         total_positive_weight = sum(max(0.0, report.weight) for report in judge_results)
+        total_negative_weight = sum(
+            abs(report.weight) for report in judge_results if report.weight < 0
+        )
         weighted_score_sum = sum(
             (1.0 if report.verdict == "MET" else 0.0) * report.weight for report in judge_results
         )
@@ -182,6 +185,11 @@ Provide your evaluation as JSON only."""
         if normalize:
             if total_positive_weight > 0:
                 score = max(0.0, min(1.0, weighted_score_sum / total_positive_weight))
+            elif total_negative_weight > 0:
+                # All-negative rubric: score starts at 1.0, errors (MET) subtract from it
+                # weighted_score_sum is <= 0 for all-negative rubrics
+                # Formula: 1.0 + (negative_sum / total_negative) gives 1.0 when no errors, 0.0 when all errors
+                score = max(0.0, min(1.0, 1.0 + weighted_score_sum / total_negative_weight))
             else:
                 score = 0.0
         else:

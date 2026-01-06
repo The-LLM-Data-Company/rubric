@@ -133,10 +133,13 @@ Provide your evaluation as JSON only."""
             result = parse_json_to_dict(response)
             evaluations = result.get("criteria_evaluations", [])
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+            # Conservative default: assume worst case for each criterion type
+            # - Positive criteria: UNMET (requirement not met)
+            # - Negative criteria: MET (assume error is present)
             return [
                 CriterionReport(
                     requirement=criterion.requirement,
-                    verdict="UNMET",
+                    verdict="MET" if criterion.weight < 0 else "UNMET",
                     reason=f"Error parsing judge response: {error}",
                     weight=criterion.weight,
                 )
@@ -155,7 +158,8 @@ Provide your evaluation as JSON only."""
                 verdict = "MET" if criterion_status == "MET" else "UNMET"
                 explanation = str(eval_data.get("explanation", "No explanation provided"))
             else:
-                verdict = "UNMET"
+                # Conservative default: assume worst case for each criterion type
+                verdict = "MET" if criterion.weight < 0 else "UNMET"
                 explanation = "Evaluation not found in response"
 
             criterion_reports.append(

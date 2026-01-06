@@ -169,9 +169,13 @@ class PerCriterionGrader(Autograder):
             )
 
         except (json.JSONDecodeError, KeyError) as e:
+            # Conservative default: assume worst case for each criterion type
+            # - Positive criteria: UNMET (requirement not met)
+            # - Negative criteria: MET (assume error is present)
+            default_verdict = "MET" if criterion.weight < 0 else "UNMET"
             return CriterionReport(
                 requirement=criterion.requirement,
-                verdict="UNMET",
+                verdict=default_verdict,
                 reason=f"Error parsing judge response: {str(e)}",
                 weight=criterion.weight,
             )

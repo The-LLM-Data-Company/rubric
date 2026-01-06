@@ -27,6 +27,7 @@ async def test_per_criterion_one_shot_grader_class_integration(
 
 @pytest.mark.asyncio
 async def test_per_criterion_one_shot_grader_handles_invalid_json(sample_rubric):
+    """Parse failures use conservative defaults based on criterion type."""
     async def bad_generate(system_prompt: str, user_prompt: str) -> str:
         return "not-json"
 
@@ -38,10 +39,16 @@ async def test_per_criterion_one_shot_grader_handles_invalid_json(sample_rubric)
     )
     report = await grader.aggregate(judge_results)
 
+    # Score is 0.0 with conservative defaults
     assert report.score == 0.0
     assert report.report is not None
+
+    # Verify conservative defaults: positive→UNMET, negative→MET
     for criterion_report in report.report:
-        assert criterion_report.verdict == "UNMET"
+        if criterion_report.weight < 0:
+            assert criterion_report.verdict == "MET", "Negative criteria should default to MET"
+        else:
+            assert criterion_report.verdict == "UNMET", "Positive criteria should default to UNMET"
         assert "Error parsing judge response" in criterion_report.reason
 
 
@@ -123,3 +130,61 @@ async def test_all_negative_criteria_all_met_returns_zero_score():
     assert result.score == pytest.approx(0.0)
     assert result.raw_score == pytest.approx(-2.0)
     assert all(r.verdict == "MET" for r in result.report)
+
+
+@pytest.mark.asyncio
+async def test_missing_criterion_evaluation_uses_conservative_default():
+    """When a criterion's evaluation is missing from response, use conservative default."""
+    rubric = Rubric([
+        Criterion(weight=1.0, requirement="Is helpful"),
+        Criterion(weight=-1.0, requirement="Contains errors"),
+    ])
+
+    async def generate_partial(system_prompt: str, user_prompt: str) -> str:
+        # Only return evaluation for first criterion, missing second
+        return json.dumps({
+            "criteria_evaluations": [
+                {"criterion_number": 1, "criterion_status": "MET", "explanation": "Good"},
+                # criterion_number 2 is missing
+            ]
+        })
+
+    grader = PerCriterionOneShotGrader(generate_fn=generate_partial)
+    result = await rubric.grade("Test", autograder=grader)
+
+    # First criterion (positive): MET = 1.0 points
+    # Second criterion (negative, missing): defaults to MET = -1.0 points
+    # weighted_sum = 1.0 + (-1.0) = 0.0
+    # score = 0.0 / 1.0 = 0.0
+    assert result.score == 0.0
+
+    verdicts = {r.requirement: r.verdict for r in result.report}
+    assert verdicts["Is helpful"] == "MET"
+    assert verdicts["Contains errors"] == "MET"  # Conservative default for negative
+
+
+@pytest.mark.asyncio
+async def test_parse_failure_no_bias_one_shot():
+    """Parse failures should not artificially inflate scores for negative-heavy rubrics."""
+    rubric = Rubric([
+        Criterion(weight=1.0, requirement="Is helpful"),
+        Criterion(weight=-1.0, requirement="Contains errors"),
+        Criterion(weight=-1.0, requirement="Is harmful"),
+    ])
+
+    async def bad_generate(system_prompt: str, user_prompt: str) -> str:
+        return "not valid json at all"
+
+    grader = PerCriterionOneShotGrader(generate_fn=bad_generate)
+    result = await rubric.grade("Test", autograder=grader)
+
+    # With conservative defaults:
+    # - Positive: UNMET = 0 points
+    # - Negative: MET = -1 point each
+    # Score = max(0, (0 - 1 - 1) / 1) = 0.0
+    assert result.score == 0.0
+
+    verdicts = {r.requirement: r.verdict for r in result.report}
+    assert verdicts["Is helpful"] == "UNMET"
+    assert verdicts["Contains errors"] == "MET"
+    assert verdicts["Is harmful"] == "MET"

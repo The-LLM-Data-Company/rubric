@@ -1,6 +1,20 @@
 from rubric.rubric import Rubric
-from rubric.types import CountFn, Criterion, CriterionReport, EvaluationReport, LengthPenalty
-from rubric.utils import compute_length_penalty, word_count
+from rubric.types import (
+    CountFn,
+    Criterion,
+    CriterionReport,
+    EvaluationReport,
+    LengthPenalty,
+    PenaltyType,
+    ThinkingOutputDict,
+    ToGradeInput,
+)
+from rubric.utils import (
+    compute_length_penalty,
+    normalize_to_grade_input,
+    parse_thinking_output,
+    word_count,
+)
 
 __version__ = "1.2.7"
 __all__ = [
@@ -9,8 +23,13 @@ __all__ = [
     "CriterionReport",
     "EvaluationReport",
     "LengthPenalty",
+    "PenaltyType",
     "Rubric",
+    "ThinkingOutputDict",
+    "ToGradeInput",
     "compute_length_penalty",
+    "normalize_to_grade_input",
+    "parse_thinking_output",
     "word_count",
 ]
 __name__ = "rubric"

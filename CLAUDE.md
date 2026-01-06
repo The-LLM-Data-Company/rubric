@@ -152,6 +152,7 @@ class LengthPenalty(BaseModel):
     penalty_at_cap: float = 0.5    # Max penalty to subtract from score
     exponent: float = 1.6          # Curve steepness (higher = more lenient near budget)
     count_fn: CountFn | None = None  # Custom counting function
+    penalty_type: PenaltyType = "ALL"  # Which sections to count: "ALL", "OUTPUT_ONLY", "THINKING_ONLY"
 ```
 
 For **normalized scores** (0-1), use fractional `penalty_at_cap` values like `0.5` (lose up to 50% of score).
@@ -230,6 +231,114 @@ result = await rubric.grade(response, autograder=grader)
 3. **Applied after aggregation** - the base rubric score is computed first, then penalty is subtracted
 4. **Final score is clamped to 0** - `max(0.0, score - penalty)` when normalized
 5. **Configurable curve** - the exponent controls how quickly penalty ramps up after free_budget
+
+## Thinking/Output Token Support
+
+For models that generate thinking/reasoning steps separately from final output (e.g., Claude with extended thinking), you can apply length penalties to specific sections.
+
+### Input Formats
+
+The `to_grade` parameter accepts three formats:
+
+**1. Dict Format (Explicit)**
+```python
+await rubric.grade({
+    "thinking": "Let me reason through this step by step...",
+    "output": "The final answer is 42"
+})
+```
+
+**2. String with Markers (Auto-parsed)**
+```python
+await rubric.grade(
+    "<thinking>My reasoning process...</thinking><output>Final answer</output>"
+)
+```
+
+**3. Plain String (Backwards Compatible)**
+```python
+await rubric.grade("Just a regular response")  # Treated as all output
+```
+
+### Penalty Type Selection
+
+Use the `penalty_type` parameter in `LengthPenalty` to control which sections are counted:
+
+```python
+penalty = LengthPenalty(
+    free_budget=8000,
+    max_cap=10000,
+    penalty_at_cap=0.5,
+    penalty_type="OUTPUT_ONLY"  # Options: "ALL", "OUTPUT_ONLY", "THINKING_ONLY"
+)
+```
+
+**Penalty Types:**
+- `"ALL"` - Count both thinking and output tokens (default, backwards compatible)
+- `"OUTPUT_ONLY"` - Only count output tokens (useful for RL training to allow long reasoning)
+- `"THINKING_ONLY"` - Only count thinking tokens (penalize excessive reasoning)
+
+### Use Cases
+
+**1. RL Training: Allow Long Reasoning, Penalize Verbose Output**
+```python
+from transformers import AutoTokenizer
+from rubric import Rubric, LengthPenalty
+from rubric.autograders import PerCriterionGrader
+
+tokenizer = AutoTokenizer.from_pretrained("your-model")
+
+grader = PerCriterionGrader(
+    normalize=False,  # Raw scores for training
+    length_penalty=LengthPenalty(
+        free_budget=8000,
+        max_cap=10000,
+        penalty_at_cap=50.0,  # Absolute penalty for raw scores
+        penalty_type="OUTPUT_ONLY",  # Don't penalize thinking
+        count_fn=lambda t: len(tokenizer.encode(t, add_special_tokens=False))
+    )
+)
+
+# Grade with separate thinking and output
+result = await rubric.grade(
+    {"thinking": long_reasoning, "output": final_answer},
+    autograder=grader
+)
+# result.score = raw weighted sum - output length penalty
+```
+
+**2. Penalize Excessive Reasoning**
+```python
+grader = PerCriterionGrader(
+    length_penalty=LengthPenalty(
+        free_budget=5000,
+        penalty_type="THINKING_ONLY",  # Only penalize long thinking
+    )
+)
+```
+
+**3. Claude API with Extended Thinking**
+```python
+# Claude API returns separate thinking and content
+response = await claude_client.messages.create(
+    model="claude-sonnet-4-5",
+    extended_thinking=True,
+    ...
+)
+
+# Pass to rubric
+result = await rubric.grade({
+    "thinking": response.thinking,
+    "output": response.content[0].text
+}, autograder=grader)
+```
+
+### Backwards Compatibility
+
+All existing code continues to work without changes:
+- Plain strings are treated as output (no thinking section)
+- `LengthPenalty` without `penalty_type` defaults to `"ALL"`
+- String with markers is automatically parsed when `LengthPenalty` is configured
 
 ## Training / RL Use Cases
 
@@ -331,7 +440,14 @@ from rubric import (
     EvaluationReport,
     LengthPenalty,
     CountFn,
+    # New thinking/output support
+    PenaltyType,
+    ThinkingOutputDict,
+    ToGradeInput,
+    # Utility functions
     compute_length_penalty,
+    normalize_to_grade_input,
+    parse_thinking_output,
     word_count,
 )
 ```

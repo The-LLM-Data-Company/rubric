@@ -1,10 +1,32 @@
 """Type definitions for rubrics and evaluation components."""
 
-from typing import Any, Callable, Literal, Protocol
+from collections.abc import Callable
+from typing import Any, Literal, Protocol, TypedDict
 
 from pydantic import BaseModel, ConfigDict
 
 CountFn = Callable[[str], int]
+
+
+class ThinkingOutputDict(TypedDict, total=False):
+    """Dict format for submissions with separate thinking and output sections.
+
+    Both fields are optional to allow partial submissions or gradual construction.
+    When used with length penalty, missing fields are treated as empty strings.
+    """
+
+    thinking: str
+    output: str
+
+
+ToGradeInput = str | ThinkingOutputDict
+"""Union type for to_grade parameter.
+
+Accepts either a plain string or a dict with thinking/output keys.
+"""
+
+PenaltyType = Literal["ALL", "OUTPUT_ONLY", "THINKING_ONLY"]
+"""Type for penalty_type field: specifies which sections to count for length penalty."""
 
 
 class LengthPenalty(BaseModel):
@@ -28,6 +50,10 @@ class LengthPenalty(BaseModel):
         count_fn: Function to count tokens/words in text. If None, uses whitespace word count.
             For accurate token counting, pass a tokenizer-based function like:
             `lambda text: len(tokenizer.encode(text))`
+        penalty_type: Which text to count for penalty calculation:
+            - "ALL": Count both thinking and output tokens (default)
+            - "OUTPUT_ONLY": Count only output tokens (useful for RL training)
+            - "THINKING_ONLY": Count only thinking tokens
 
     Example:
         >>> # Default: word-based counting with sensible defaults for normalized scores
@@ -49,6 +75,12 @@ class LengthPenalty(BaseModel):
         ...     max_cap=10000,
         ...     count_fn=lambda text: len(tokenizer.encode(text))
         ... )
+        >>>
+        >>> # Only penalize output tokens (allow long thinking)
+        >>> penalty = LengthPenalty(
+        ...     free_budget=8000,
+        ...     penalty_type="OUTPUT_ONLY",
+        ... )
     """
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -58,6 +90,7 @@ class LengthPenalty(BaseModel):
     penalty_at_cap: float = 0.5
     exponent: float = 1.6
     count_fn: CountFn | None = None
+    penalty_type: PenaltyType = "ALL"
 
 
 class Criterion(BaseModel):

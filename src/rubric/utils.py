@@ -1,11 +1,12 @@
 import json
 import os
 import re
+import warnings
 
 from google import genai
 from google.genai import types
 
-from rubric.types import LengthPenalty
+from rubric.types import LengthPenalty, ThinkingOutputDict, ToGradeInput
 
 
 def word_count(text: str) -> int:
@@ -18,7 +19,94 @@ def word_count(text: str) -> int:
     return len(text.split())
 
 
-def compute_length_penalty(text: str, config: LengthPenalty) -> float:
+def parse_thinking_output(text: str) -> ThinkingOutputDict:
+    """Parse thinking and output sections from text with XML-style markers.
+
+    Looks for <thinking>...</thinking> and <output>...</output> markers.
+    If markers are not found, treats the entire text as output.
+
+    Args:
+        text: Text potentially containing thinking/output markers.
+
+    Returns:
+        Dict with 'thinking' and 'output' keys. Empty strings if sections not found.
+
+    Examples:
+        >>> parse_thinking_output("<thinking>ABC</thinking><output>DEF</output>")
+        {'thinking': 'ABC', 'output': 'DEF'}
+
+        >>> parse_thinking_output("Just output text")
+        {'thinking': '', 'output': 'Just output text'}
+
+        >>> parse_thinking_output("<thinking>Think</thinking>Rest")
+        {'thinking': 'Think', 'output': 'Rest'}
+    """
+    # Try to extract thinking section
+    thinking_match = re.search(r"<thinking>(.*?)</thinking>", text, re.DOTALL | re.IGNORECASE)
+    thinking = thinking_match.group(1).strip() if thinking_match else ""
+
+    # Try to extract output section
+    output_match = re.search(r"<output>(.*?)</output>", text, re.DOTALL | re.IGNORECASE)
+
+    if output_match:
+        # Explicit output markers found
+        output = output_match.group(1).strip()
+    elif thinking_match:
+        # Has thinking but no output markers - treat rest as output
+        # Remove the thinking section and use remainder
+        output = re.sub(
+            r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL | re.IGNORECASE
+        ).strip()
+    else:
+        # No markers at all - treat entire text as output
+        output = text
+
+    return ThinkingOutputDict(thinking=thinking, output=output)
+
+
+def normalize_to_grade_input(to_grade: ToGradeInput) -> ThinkingOutputDict:
+    """Normalize to_grade input to dict format.
+
+    Args:
+        to_grade: Either a string (with optional markers) or a dict.
+
+    Returns:
+        Dict with 'thinking' and 'output' keys.
+
+    Raises:
+        ValueError: If dict format is invalid (missing keys, wrong types).
+    """
+    if isinstance(to_grade, str):
+        return parse_thinking_output(to_grade)
+
+    # Handle dict input
+    if not isinstance(to_grade, dict):
+        raise ValueError(f"to_grade must be a string or dict, got {type(to_grade).__name__}")
+
+    # Validate dict has correct keys
+    thinking = to_grade.get("thinking", "")
+    output = to_grade.get("output", "")
+
+    # Validate types
+    if not isinstance(thinking, str):
+        raise ValueError(f"'thinking' must be a string, got {type(thinking).__name__}")
+    if not isinstance(output, str):
+        raise ValueError(f"'output' must be a string, got {type(output).__name__}")
+
+    # Warn if dict has unexpected keys
+    expected_keys = {"thinking", "output"}
+    extra_keys = set(to_grade.keys()) - expected_keys
+    if extra_keys:
+        warnings.warn(
+            f"Unexpected keys in to_grade dict: {extra_keys}. "
+            f"Only 'thinking' and 'output' are used.",
+            UserWarning,
+        )
+
+    return ThinkingOutputDict(thinking=thinking, output=output)
+
+
+def compute_length_penalty(text: str | ThinkingOutputDict, config: LengthPenalty) -> float:
     """Compute the length penalty for the given text based on the config.
 
     The penalty follows an exponential curve:
@@ -27,15 +115,41 @@ def compute_length_penalty(text: str, config: LengthPenalty) -> float:
     - Returns an interpolated value between those bounds using the exponent
 
     Args:
-        text: The text to measure.
-        config: LengthPenalty configuration specifying thresholds and penalty.
+        text: Either a string (backwards compatible) or a dict with 'thinking'
+            and 'output' keys. When a string is provided, it's treated as
+            all output (no thinking section).
+        config: LengthPenalty configuration specifying thresholds, penalty,
+            and which sections to count based on penalty_type.
 
     Returns:
         A penalty value between 0 and penalty_at_cap to subtract from the score.
     """
-    count_fn = config.count_fn if config.count_fn is not None else word_count
-    count = count_fn(text)
+    # Normalize input to dict format
+    if isinstance(text, str):
+        # Backwards compatibility: treat string as output only
+        text_dict = ThinkingOutputDict(thinking="", output=text)
+    else:
+        text_dict = text
 
+    # Select which text to count based on penalty_type
+    if config.penalty_type == "ALL":
+        # Concatenate both sections (with space to avoid word merging)
+        text_to_count = text_dict.get("thinking", "") + " " + text_dict.get("output", "")
+    elif config.penalty_type == "OUTPUT_ONLY":
+        text_to_count = text_dict.get("output", "")
+    elif config.penalty_type == "THINKING_ONLY":
+        text_to_count = text_dict.get("thinking", "")
+    else:
+        raise ValueError(
+            f"Invalid penalty_type: {config.penalty_type}. "
+            f"Must be 'ALL', 'OUTPUT_ONLY', or 'THINKING_ONLY'."
+        )
+
+    # Count tokens/words
+    count_fn = config.count_fn if config.count_fn is not None else word_count
+    count = count_fn(text_to_count)
+
+    # Apply penalty curve
     if count <= config.free_budget:
         return 0.0
     if count >= config.max_cap:

@@ -114,6 +114,19 @@ Where:
 - Numerator = sum of weights for MET criteria
 - Result clamped to [0, 1]
 
+**All-Negative Criteria Rubrics:**
+
+For rubrics containing only negative criteria (e.g., error detection rubrics), a different formula is used:
+
+$$
+\text{score} = \max\left(0, \min\left(1, 1 + \frac{\sum_{i=1}^{n} \mathbb{1}[\text{verdict}_i = \text{MET}] \cdot w_i}{\sum_{i=1}^{n} |w_i|}\right)\right)
+$$
+
+This ensures:
+- Score = 1.0 when all errors are avoided (all criteria UNMET)
+- Score = 0.0 when all errors are present (all criteria MET)
+- Proportional scores for partial error presence
+
 ### PerCriterionOneShotGrader
 
 PerCriterionOneShotGrader makes 1 inference call that evaluates all criteria together and returns a structured output, unlike PerCriterionGrader which makes $n$ inference calls.
@@ -139,6 +152,14 @@ $$
 $$
 
 Clamped to [0, 1]. The model is guided to use the same weighted scoring logic, but computes the result in-context rather than aggregating score post-hoc.
+
+**raw_score Consistency:** The LLM's 0-100 score is converted to weighted-sum semantics for `raw_score`, ensuring consistency with other graders:
+
+```python
+raw_score = (llm_score / 100.0) * total_positive_weight
+```
+
+The original LLM score is preserved in `llm_raw_score` for debugging.
 
 ### Default System Prompts
 
@@ -185,6 +206,54 @@ Subclass any autograder and override:
 
 **3. Full control**
 Override the entire `grade()` method for complete end-to-end control over the grading process.
+
+## Error Handling
+
+### Parse Failure Behavior
+
+When the LLM returns invalid JSON or the response cannot be parsed, the autograders use **conservative defaults** to avoid biasing scores:
+
+| Criterion Type | Default Verdict | Rationale |
+|----------------|-----------------|-----------|
+| Positive (weight > 0) | UNMET | Assume requirement not met |
+| Negative (weight < 0) | MET | Assume error is present |
+
+This ensures parse failures result in worst-case scores rather than artificially inflating results. For example, if an error-detection rubric has many negative criteria, parse failures won't incorrectly report "no errors found."
+
+```python
+# Example: Parse failure with mixed rubric
+rubric = Rubric([
+    Criterion(weight=1.0, requirement="Is helpful"),      # → UNMET on parse failure
+    Criterion(weight=-1.0, requirement="Contains errors"), # → MET on parse failure
+])
+
+# If LLM returns invalid JSON, score = 0.0 (worst case)
+# rather than being artificially inflated
+```
+
+## Score Fields
+
+The `EvaluationReport` returned by `rubric.grade()` contains several score fields:
+
+| Field | Description |
+|-------|-------------|
+| `score` | Final score (0-1 if normalized, raw weighted sum if `normalize=False`) |
+| `raw_score` | Weighted sum before normalization. **Consistent semantics across all graders.** |
+| `llm_raw_score` | Original LLM output before conversion. For `RubricAsJudgeGrader`, this is the 0-100 score. |
+| `report` | Per-criterion breakdown (None for `RubricAsJudgeGrader`) |
+
+**Cross-Grader Consistency:** `raw_score` uses weighted-sum semantics across all graders, enabling direct comparison:
+
+```python
+# Same rubric, different graders - raw_score is comparable
+result1 = await rubric.grade(text, autograder=PerCriterionGrader())
+result2 = await rubric.grade(text, autograder=RubricAsJudgeGrader())
+
+# Both raw_scores are on the same scale (weighted sum)
+print(result1.raw_score)      # e.g., 12.75
+print(result2.raw_score)      # e.g., 12.75 (converted from LLM's 85/100)
+print(result2.llm_raw_score)  # e.g., 85.0 (original LLM output)
+```
 
 ## Loading Rubrics
 

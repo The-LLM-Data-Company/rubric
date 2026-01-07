@@ -38,14 +38,14 @@ class LengthPenalty(BaseModel):
     - penalty_at_cap * ((count - free_budget) / (max_cap - free_budget)) ** exponent otherwise
 
     By default, the penalty is subtracted from the final score (which is normalized to 0-1).
-    For training use cases with raw scores, use absolute penalty values (e.g., -50.0).
+    For training use cases with raw scores, use absolute penalty values (e.g., 50.0).
 
     Args:
         free_budget: Number of tokens/words allowed before any penalty applies.
         max_cap: Number of tokens/words at which the maximum penalty is applied.
-        penalty_at_cap: Maximum penalty value. For normalized scores, use fractional values
-            like 0.5 (lose up to 50% of score). For training with raw scores, use absolute
-            values like -50.0 (will be added directly to the raw score).
+        penalty_at_cap: Maximum penalty value (always subtracted from score). For normalized
+            scores, use fractional values like 0.5 (lose up to 50% of score). For training
+            with raw scores, use absolute values like 50.0 (subtract up to 50 points).
         exponent: Controls the penalty curve steepness. Higher = more lenient near free_budget.
         count_fn: Function to count tokens/words in text. If None, uses whitespace word count.
             For accurate token counting, pass a tokenizer-based function like:
@@ -63,7 +63,7 @@ class LengthPenalty(BaseModel):
         >>> penalty = LengthPenalty(
         ...     free_budget=8000,
         ...     max_cap=10000,
-        ...     penalty_at_cap=-50.0,  # Absolute penalty added to raw score
+        ...     penalty_at_cap=50.0,  # Subtract up to 50 points from raw score
         ...     exponent=1.6,
         ... )
         >>>
@@ -113,13 +113,27 @@ class EvaluationReport(BaseModel):
     """Final evaluation result with score and optional per-criterion reports.
 
     For training use cases, set normalize=False in the autograder to get raw weighted sums
-    instead of normalized 0-1 scores. The raw_score field always contains the unnormalized
-    weighted sum regardless of the normalize setting.
+    instead of normalized 0-1 scores.
+
+    Attributes:
+        score: The final score (0-1 if normalized, raw weighted sum otherwise).
+        raw_score: Always contains the unnormalized weighted sum, regardless of grader type.
+            This provides consistent semantics across all graders for training pipelines.
+        llm_raw_score: The original score returned by the LLM before any conversion.
+            For PerCriterionGrader/PerCriterionOneShotGrader: same as raw_score (weighted sum).
+            For RubricAsJudgeGrader: the 0-100 holistic score from the LLM.
+            Useful for debugging and understanding the LLM's actual output.
+        report: Optional per-criterion breakdown (None for RubricAsJudgeGrader).
+        error: Optional error message if grading failed (e.g., JSON parse error).
+            When set, score defaults to 0.0 and other fields may be None.
+            Training pipelines should filter out results where error is not None.
     """
 
     score: float
     raw_score: float | None = None
+    llm_raw_score: float | None = None
     report: list[CriterionReport] | None = None
+    error: str | None = None
 
 
 class GenerateFn(Protocol):

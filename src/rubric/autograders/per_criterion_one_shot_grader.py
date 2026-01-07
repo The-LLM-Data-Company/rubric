@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 
 from rubric.autograders import Autograder
 from rubric.types import Criterion, CriterionReport, EvaluationReport, GenerateFn, LengthPenalty
@@ -69,6 +70,17 @@ For each criterion, provide:
 - A criterion_status (MET or UNMET)
 - An explanation containing a brief justification
 
+THINKING AND OUTPUT SECTIONS:
+The submission may contain <thinking> and <output> sections:
+- <thinking>: The model's internal reasoning process before answering
+- <output>: The final response presented to the user
+
+Unless a criterion specifically mentions "reasoning", "thinking", or "thought process",
+evaluate ONLY the <output> section. The thinking section shows how the model arrived
+at its answer but is not part of the user-facing response.
+
+If the submission has no section markers, treat the entire text as the output.
+
 Do NOT provide an overall score - only evaluate each criterion.
 
 Respond ONLY with valid JSON in this exact format:
@@ -82,6 +94,53 @@ Respond ONLY with valid JSON in this exact format:
     ...
   ]
 }"""
+
+# Alternative key names that LLMs might use for criterion_number
+_ALTERNATIVE_CRITERION_NUMBER_KEYS = ["criterionNumber", "criterion_num", "id", "number", "index"]
+
+
+def _find_evaluation(evaluations: list, index: int) -> dict | None:
+    """Find evaluation entry matching the given criterion index.
+
+    Handles common LLM variations:
+    - String numbers ("1" matches 1)
+    - Float numbers (1.0 matches 1)
+    - Alternative key names (criterionNumber, id, etc.)
+
+    Args:
+        evaluations: List of evaluation dicts from LLM response.
+        index: The 1-based criterion index to find.
+
+    Returns:
+        The matching evaluation dict, or None if not found.
+    """
+    for entry in evaluations:
+        # Try primary key with type coercion
+        criterion_num = entry.get("criterion_number")
+        if criterion_num is not None:
+            try:
+                if int(criterion_num) == index:
+                    return entry
+            except (TypeError, ValueError):
+                pass
+
+        # Try alternative keys
+        for key in _ALTERNATIVE_CRITERION_NUMBER_KEYS:
+            alt_num = entry.get(key)
+            if alt_num is not None:
+                try:
+                    if int(alt_num) == index:
+                        warnings.warn(
+                            f"LLM used '{key}' instead of 'criterion_number'. "
+                            f"Consider updating your prompt or LLM.",
+                            UserWarning,
+                            stacklevel=4,
+                        )
+                        return entry
+                except (TypeError, ValueError):
+                    pass
+
+    return None
 
 
 class PerCriterionOneShotGrader(Autograder):
@@ -115,16 +174,16 @@ class PerCriterionOneShotGrader(Autograder):
 
         criteria_text = "\n".join(criteria_lines)
         query_text = f"<input>{query}</input>" if query else ""
-        user_prompt = f"""Evaluate the output against the following criteria:
+        user_prompt = f"""Evaluate the submission against the following criteria:
 <criteria>
 {criteria_text}
 </criteria>
 
 {query_text}
 
-<output>
+<submission>
 {to_grade}
-</output>
+</submission>
 
 Provide your evaluation as JSON only."""
 
@@ -133,10 +192,13 @@ Provide your evaluation as JSON only."""
             result = parse_json_to_dict(response)
             evaluations = result.get("criteria_evaluations", [])
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+            # Conservative default: assume worst case for each criterion type
+            # - Positive criteria: UNMET (requirement not met)
+            # - Negative criteria: MET (assume error is present)
             return [
                 CriterionReport(
                     requirement=criterion.requirement,
-                    verdict="UNMET",
+                    verdict="MET" if criterion.weight < 0 else "UNMET",
                     reason=f"Error parsing judge response: {error}",
                     weight=criterion.weight,
                 )
@@ -145,17 +207,15 @@ Provide your evaluation as JSON only."""
 
         criterion_reports: list[CriterionReport] = []
         for index, criterion in enumerate(rubric, start=1):
-            eval_data = next(
-                (entry for entry in evaluations if entry.get("criterion_number") == index),
-                None,
-            )
+            eval_data = _find_evaluation(evaluations, index)
 
             if eval_data:
                 criterion_status = str(eval_data.get("criterion_status", "")).strip().upper()
                 verdict = "MET" if criterion_status == "MET" else "UNMET"
                 explanation = str(eval_data.get("explanation", "No explanation provided"))
             else:
-                verdict = "UNMET"
+                # Conservative default: assume worst case for each criterion type
+                verdict = "MET" if criterion.weight < 0 else "UNMET"
                 explanation = "Evaluation not found in response"
 
             criterion_reports.append(
@@ -173,6 +233,9 @@ Provide your evaluation as JSON only."""
         self, judge_results: list[CriterionReport], *, normalize: bool = True
     ) -> EvaluationReport:
         total_positive_weight = sum(max(0.0, report.weight) for report in judge_results)
+        total_negative_weight = sum(
+            abs(report.weight) for report in judge_results if report.weight < 0
+        )
         weighted_score_sum = sum(
             (1.0 if report.verdict == "MET" else 0.0) * report.weight for report in judge_results
         )
@@ -182,9 +245,19 @@ Provide your evaluation as JSON only."""
         if normalize:
             if total_positive_weight > 0:
                 score = max(0.0, min(1.0, weighted_score_sum / total_positive_weight))
+            elif total_negative_weight > 0:
+                # All-negative rubric: score starts at 1.0, errors (MET) subtract from it
+                # weighted_score_sum is <= 0 for all-negative rubrics
+                # Formula: 1.0 + (negative_sum / total_negative) gives 1.0 when no errors, 0.0 when all errors
+                score = max(0.0, min(1.0, 1.0 + weighted_score_sum / total_negative_weight))
             else:
                 score = 0.0
         else:
             score = raw_score
 
-        return EvaluationReport(score=score, raw_score=raw_score, report=judge_results)
+        return EvaluationReport(
+            score=score,
+            raw_score=raw_score,
+            llm_raw_score=raw_score,  # Same as raw_score for per-criterion graders
+            report=judge_results,
+        )

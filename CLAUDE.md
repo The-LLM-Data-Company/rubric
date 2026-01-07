@@ -41,9 +41,22 @@ Final grading result:
 ```python
 class EvaluationReport(BaseModel):
     score: float                              # Normalized 0-1 (or raw if normalize=False)
-    raw_score: float | None                   # Always contains the unnormalized weighted sum
+    raw_score: float | None                   # Always weighted-sum semantics (consistent across all graders)
+    llm_raw_score: float | None               # Original LLM output before conversion
     report: list[CriterionReport] | None      # Per-criterion details (if available)
+    error: str | None                         # Error message if grading failed (e.g., parse error)
 ```
+
+**Score Field Semantics:**
+- `raw_score`: Always uses **weighted-sum semantics** regardless of grader type. This ensures training pipelines can use `raw_score` consistently without knowing which grader was used.
+- `llm_raw_score`: The **original value** from the LLM before any conversion:
+  - `PerCriterionGrader` / `PerCriterionOneShotGrader`: Same as `raw_score` (weighted sum)
+  - `RubricAsJudgeGrader`: The 0-100 holistic score from the LLM (useful for debugging)
+
+**Error Handling:**
+- `error`: Set when grading fails (e.g., JSON parse error). When set, `score` defaults to 0.0.
+- Training pipelines should filter out results where `error is not None` to avoid corrupted data.
+- A warning is logged when parse errors occur, including a preview of the unparseable response.
 
 ### `LengthPenalty`
 Configuration for penalizing overly long outputs (see Length Penalty section below).
@@ -89,9 +102,16 @@ Evaluates **all criteria in a single LLM call**. Best for cost efficiency with f
 ### `RubricAsJudgeGrader`
 Asks the LLM for a **single holistic score** (0-100). Fastest but no per-criterion breakdown.
 
-- **judge()**: Single LLM call that returns overall score
-- **aggregate()**: Normalizes 0-100 score to 0-1
+- **judge()**: Single LLM call that returns overall score (0-100)
+- **aggregate()**: Converts to weighted-sum `raw_score` for consistency, normalizes to 0-1 for `score`
 - Returns `report=None` (no per-criterion details)
+- `llm_raw_score` preserves the original 0-100 LLM score for debugging
+
+**raw_score Conversion**: The LLM's 0-100 score is converted to weighted-sum semantics:
+```python
+raw_score = (llm_score / 100.0) * total_positive_weight
+```
+This ensures `raw_score` is comparable across all grader types for training pipelines.
 
 ## Grade Calculation
 
@@ -138,6 +158,20 @@ grader = PerCriterionGrader(normalize=False)
 ```
 
 The `raw_score` field is **always populated** regardless of the `normalize` setting, giving you access to both views.
+
+**Cross-Grader Consistency**: `raw_score` now uses consistent weighted-sum semantics across all graders:
+```python
+# Same rubric, different graders - raw_score is now comparable!
+result1 = await rubric.grade(text, autograder=PerCriterionGrader(normalize=False))
+result2 = await rubric.grade(text, autograder=RubricAsJudgeGrader(normalize=False))
+
+# Both use weighted-sum semantics for raw_score
+# result1.raw_score and result2.raw_score are on the same scale
+
+# For RubricAsJudgeGrader, the original 0-100 LLM score is in llm_raw_score
+print(result2.llm_raw_score)  # e.g., 85.0 (original LLM output)
+print(result2.raw_score)      # e.g., 12.75 (converted to weighted sum)
+```
 
 ## Length Penalty
 

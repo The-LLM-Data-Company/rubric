@@ -113,6 +113,17 @@ Output: "Locations are only in United States and Canada."
 entails no China location without mentioning China."
 }
 
+THINKING AND OUTPUT SECTIONS:
+The submission may contain <thinking> and <output> sections:
+- <thinking>: The model's internal reasoning process before answering
+- <output>: The final response presented to the user
+
+Unless a criterion specifically mentions "reasoning", "thinking", or "thought process",
+evaluate ONLY the <output> section. The thinking section shows how the model arrived
+at its answer but is not part of the user-facing response.
+
+If the submission has no section markers, treat the entire text as the output.
+
 Return only raw JSON starting with {, no back-ticks, no 'json' prefix."""
 
 
@@ -145,9 +156,9 @@ class PerCriterionGrader(Autograder):
 
 {query_text}
 
-<output>
+<submission>
 {to_grade}
-</output>"""
+</submission>"""
 
         try:
             response = await self.generate(
@@ -169,9 +180,13 @@ class PerCriterionGrader(Autograder):
             )
 
         except (json.JSONDecodeError, KeyError) as e:
+            # Conservative default: assume worst case for each criterion type
+            # - Positive criteria: UNMET (requirement not met)
+            # - Negative criteria: MET (assume error is present)
+            default_verdict = "MET" if criterion.weight < 0 else "UNMET"
             return CriterionReport(
                 requirement=criterion.requirement,
-                verdict="UNMET",
+                verdict=default_verdict,
                 reason=f"Error parsing judge response: {str(e)}",
                 weight=criterion.weight,
             )
@@ -188,6 +203,9 @@ class PerCriterionGrader(Autograder):
         self, judge_results: list[CriterionReport], *, normalize: bool = True
     ) -> EvaluationReport:
         total_positive_weight = sum(max(0.0, report.weight) for report in judge_results)
+        total_negative_weight = sum(
+            abs(report.weight) for report in judge_results if report.weight < 0
+        )
         weighted_score_sum = sum(
             (1.0 if report.verdict == "MET" else 0.0) * report.weight for report in judge_results
         )
@@ -197,6 +215,11 @@ class PerCriterionGrader(Autograder):
         if normalize:
             if total_positive_weight > 0:
                 score = max(0.0, min(1.0, weighted_score_sum / total_positive_weight))
+            elif total_negative_weight > 0:
+                # All-negative rubric: score starts at 1.0, errors (MET) subtract from it
+                # weighted_score_sum is <= 0 for all-negative rubrics
+                # Formula: 1.0 + (negative_sum / total_negative) gives 1.0 when no errors, 0.0 when all errors
+                score = max(0.0, min(1.0, 1.0 + weighted_score_sum / total_negative_weight))
             else:
                 score = 0.0
         else:
@@ -205,5 +228,6 @@ class PerCriterionGrader(Autograder):
         return EvaluationReport(
             score=score,
             raw_score=raw_score,
+            llm_raw_score=raw_score,  # Same as raw_score for per-criterion graders
             report=judge_results,
         )

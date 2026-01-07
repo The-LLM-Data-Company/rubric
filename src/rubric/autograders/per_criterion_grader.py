@@ -217,5 +217,6 @@ class PerCriterionGrader(Autograder):
         return EvaluationReport(
             score=score,
             raw_score=raw_score,
+            llm_raw_score=raw_score,  # Same as raw_score for per-criterion graders
             report=judge_results,
         )

@@ -199,4 +199,9 @@ Provide your evaluation as JSON only."""
         else:
             score = raw_score
 
-        return EvaluationReport(score=score, raw_score=raw_score, report=judge_results)
+        return EvaluationReport(
+            score=score,
+            raw_score=raw_score,
+            llm_raw_score=raw_score,  # Same as raw_score for per-criterion graders
+            report=judge_results,
+        )

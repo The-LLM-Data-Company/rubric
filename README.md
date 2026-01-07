@@ -153,6 +153,14 @@ $$
 
 Clamped to [0, 1]. The model is guided to use the same weighted scoring logic, but computes the result in-context rather than aggregating score post-hoc.
 
+**raw_score Consistency:** The LLM's 0-100 score is converted to weighted-sum semantics for `raw_score`, ensuring consistency with other graders:
+
+```python
+raw_score = (llm_score / 100.0) * total_positive_weight
+```
+
+The original LLM score is preserved in `llm_raw_score` for debugging.
+
 ### Default System Prompts
 
 Each autograder uses a specialized system prompt optimized for its evaluation approach:
@@ -221,6 +229,30 @@ rubric = Rubric([
 
 # If LLM returns invalid JSON, score = 0.0 (worst case)
 # rather than being artificially inflated
+```
+
+## Score Fields
+
+The `EvaluationReport` returned by `rubric.grade()` contains several score fields:
+
+| Field | Description |
+|-------|-------------|
+| `score` | Final score (0-1 if normalized, raw weighted sum if `normalize=False`) |
+| `raw_score` | Weighted sum before normalization. **Consistent semantics across all graders.** |
+| `llm_raw_score` | Original LLM output before conversion. For `RubricAsJudgeGrader`, this is the 0-100 score. |
+| `report` | Per-criterion breakdown (None for `RubricAsJudgeGrader`) |
+
+**Cross-Grader Consistency:** `raw_score` uses weighted-sum semantics across all graders, enabling direct comparison:
+
+```python
+# Same rubric, different graders - raw_score is comparable
+result1 = await rubric.grade(text, autograder=PerCriterionGrader())
+result2 = await rubric.grade(text, autograder=RubricAsJudgeGrader())
+
+# Both raw_scores are on the same scale (weighted sum)
+print(result1.raw_score)      # e.g., 12.75
+print(result2.raw_score)      # e.g., 12.75 (converted from LLM's 85/100)
+print(result2.llm_raw_score)  # e.g., 85.0 (original LLM output)
 ```
 
 ## Loading Rubrics

@@ -113,12 +113,22 @@ class EvaluationReport(BaseModel):
     """Final evaluation result with score and optional per-criterion reports.
 
     For training use cases, set normalize=False in the autograder to get raw weighted sums
-    instead of normalized 0-1 scores. The raw_score field always contains the unnormalized
-    weighted sum regardless of the normalize setting.
+    instead of normalized 0-1 scores.
+
+    Attributes:
+        score: The final score (0-1 if normalized, raw weighted sum otherwise).
+        raw_score: Always contains the unnormalized weighted sum, regardless of grader type.
+            This provides consistent semantics across all graders for training pipelines.
+        llm_raw_score: The original score returned by the LLM before any conversion.
+            For PerCriterionGrader/PerCriterionOneShotGrader: same as raw_score (weighted sum).
+            For RubricAsJudgeGrader: the 0-100 holistic score from the LLM.
+            Useful for debugging and understanding the LLM's actual output.
+        report: Optional per-criterion breakdown (None for RubricAsJudgeGrader).
     """
 
     score: float
     raw_score: float | None = None
+    llm_raw_score: float | None = None
     report: list[CriterionReport] | None = None
 
 

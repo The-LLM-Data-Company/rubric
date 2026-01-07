@@ -92,9 +92,23 @@ class RubricAsJudgeGrader(Autograder):
 
     async def judge(
         self, to_grade: str, rubric: list[Criterion], query: str | None = None
-    ) -> float:
+    ) -> dict:
+        """Judge the submission and return LLM score with rubric weight info.
+
+        Returns:
+            Dict with 'llm_score' (0-100 from LLM), 'total_positive_weight', and
+            'total_negative_weight' for computing consistent raw_score semantics.
+        """
         criteria_lines = []
+        total_positive_weight = 0.0
+        total_negative_weight = 0.0
+
         for index, criterion in enumerate(rubric, start=1):
+            if criterion.weight >= 0:
+                total_positive_weight += criterion.weight
+            else:
+                total_negative_weight += abs(criterion.weight)
+
             criterion_type = (
                 "NEGATIVE (error present if MET, error absent if UNMET)"
                 if criterion.weight < 0
@@ -125,20 +139,50 @@ Return your evaluation as JSON only."""
             response = await self.generate(self.system_prompt, user_prompt)
             result = parse_json_to_dict(response)
             overall_score_raw = result.get("overall_score", 0)
-            overall_score = float(overall_score_raw)
+            llm_score = float(overall_score_raw)
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-            return 0.0
+            llm_score = 0.0
 
-        return overall_score
+        return {
+            "llm_score": llm_score,
+            "total_positive_weight": total_positive_weight,
+            "total_negative_weight": total_negative_weight,
+        }
 
     async def aggregate(
-        self, judge_results: float, *, normalize: bool = True
+        self, judge_results: dict, *, normalize: bool = True
     ) -> EvaluationReport:
-        raw_score = judge_results
+        """Aggregate judge results into an EvaluationReport.
+
+        Computes a synthetic raw_score with weighted-sum semantics for consistency
+        with other graders, while preserving the original LLM score in llm_raw_score.
+        """
+        llm_score = judge_results["llm_score"]
+        total_positive_weight = judge_results["total_positive_weight"]
+        total_negative_weight = judge_results["total_negative_weight"]
+
+        # Preserve original LLM output for debugging
+        llm_raw_score = llm_score
+
+        # Compute synthetic raw_score with weighted-sum semantics
+        # This maps 0-100 LLM score to the same scale as PerCriterionGrader
+        if total_positive_weight > 0:
+            # Normal case: scale LLM's 0-100 to weighted sum range
+            raw_score = (llm_score / 100.0) * total_positive_weight
+        elif total_negative_weight > 0:
+            # All-negative rubric: 100 means no errors (score=1), 0 means all errors (score=0)
+            # raw_score for all-negative should be 0 when perfect, negative when errors present
+            # LLM score of 100 = no errors = raw_score of 0
+            # LLM score of 0 = all errors = raw_score of -total_negative_weight
+            raw_score = -total_negative_weight * (1.0 - llm_score / 100.0)
+        else:
+            raw_score = 0.0
 
         if normalize:
-            score = max(0.0, min(1.0, judge_results / 100.0))
+            score = max(0.0, min(1.0, llm_score / 100.0))
         else:
             score = raw_score
 
-        return EvaluationReport(score=score, raw_score=raw_score, report=None)
+        return EvaluationReport(
+            score=score, raw_score=raw_score, llm_raw_score=llm_raw_score, report=None
+        )

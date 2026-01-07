@@ -138,7 +138,9 @@ class PerCriterionGrader(Autograder):
         length_penalty: LengthPenalty | None = None,
         normalize: bool = True,
     ):
-        super().__init__(generate_fn=generate_fn, length_penalty=length_penalty, normalize=normalize)
+        super().__init__(
+            generate_fn=generate_fn, length_penalty=length_penalty, normalize=normalize
+        )
         self.system_prompt = system_prompt
 
     async def _judge_single_criterion(
@@ -180,13 +182,9 @@ class PerCriterionGrader(Autograder):
             )
 
         except (json.JSONDecodeError, KeyError) as e:
-            # Conservative default: assume worst case for each criterion type
-            # - Positive criteria: UNMET (requirement not met)
-            # - Negative criteria: MET (assume error is present)
-            default_verdict = "MET" if criterion.weight < 0 else "UNMET"
             return CriterionReport(
                 requirement=criterion.requirement,
-                verdict=default_verdict,
+                verdict="UNMET",
                 reason=f"Error parsing judge response: {str(e)}",
                 weight=criterion.weight,
             )

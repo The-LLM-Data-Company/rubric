@@ -154,7 +154,9 @@ class PerCriterionOneShotGrader(Autograder):
         length_penalty: LengthPenalty | None = None,
         normalize: bool = True,
     ):
-        super().__init__(generate_fn=generate_fn, length_penalty=length_penalty, normalize=normalize)
+        super().__init__(
+            generate_fn=generate_fn, length_penalty=length_penalty, normalize=normalize
+        )
         self.system_prompt = system_prompt
 
     async def judge(
@@ -192,13 +194,10 @@ Provide your evaluation as JSON only."""
             result = parse_json_to_dict(response)
             evaluations = result.get("criteria_evaluations", [])
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
-            # Conservative default: assume worst case for each criterion type
-            # - Positive criteria: UNMET (requirement not met)
-            # - Negative criteria: MET (assume error is present)
             return [
                 CriterionReport(
                     requirement=criterion.requirement,
-                    verdict="MET" if criterion.weight < 0 else "UNMET",
+                    verdict="UNMET",
                     reason=f"Error parsing judge response: {error}",
                     weight=criterion.weight,
                 )
@@ -214,8 +213,7 @@ Provide your evaluation as JSON only."""
                 verdict = "MET" if criterion_status == "MET" else "UNMET"
                 explanation = str(eval_data.get("explanation", "No explanation provided"))
             else:
-                # Conservative default: assume worst case for each criterion type
-                verdict = "MET" if criterion.weight < 0 else "UNMET"
+                verdict = "UNMET"
                 explanation = "Evaluation not found in response"
 
             criterion_reports.append(

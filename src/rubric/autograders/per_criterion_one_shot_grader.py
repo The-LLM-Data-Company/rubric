@@ -9,25 +9,25 @@ from rubric.autograders import Autograder
 from rubric.types import Criterion, CriterionReport, EvaluationReport, GenerateFn, LengthPenalty
 from rubric.utils import default_generate_fn, parse_json_to_dict
 
-DEFAULT_SYSTEM_PROMPT = """You are evaluating an output for a given query against a list of \
+DEFAULT_SYSTEM_PROMPT = """You are evaluating a response for a given query against a list of \
 criteria.
 
-You will receive the output to evaluate, and a numbered list of criteria to check. Each criterion \
+You will receive the response to evaluate, and a numbered list of criteria to check. Each criterion \
 is marked as POSITIVE or NEGATIVE.
 
 CRITERION TYPES:
 Each criterion is marked as positive or negative. Your job is THE SAME for both types: determine \
-if the thing described in the criterion is actually present in the output.
+if the thing described in the criterion is actually present in the response.
 
 POSITIVE CRITERIA:
 Positive criteria describe desired traits, requirements, or content that should be present.
-- MET (criterion_status: "MET"): The output contains/satisfies the requirement
-- UNMET (criterion_status: "UNMET"): The output does not contain/satisfy the requirement
+- MET (criterion_status: "MET"): The response contains/satisfies the requirement
+- UNMET (criterion_status: "UNMET"): The response does not contain/satisfy the requirement
 
 NEGATIVE CRITERIA:
-Negative criteria describe active errors or mistakes that the output is making.
-- MET (criterion_status: "MET"): The output advocates, states, or recommends the problematic thing
-- UNMET (criterion_status: "UNMET"): The output does NOT make this error, OR it mentions the thing \
+Negative criteria describe active errors or mistakes that the response is making.
+- MET (criterion_status: "MET"): The response advocates, states, or recommends the problematic thing
+- UNMET (criterion_status: "UNMET"): The response does NOT make this error, OR it mentions the thing \
 only to warn against it or mention why it's wrong
 
 Examples of what does NOT count as MET for negative criteria:
@@ -48,21 +48,21 @@ EVALUATION RULES:
 
 CRITERION STATUS:
 "criterion_status" has *nothing* to do with quality or correctness. It only means:
-- "MET": The thing described in the criterion IS present/occurring in the output
-- "UNMET": The thing described in the criterion IS NOT present/occurring in the output
+- "MET": The thing described in the criterion IS present/occurring in the response
+- "UNMET": The thing described in the criterion IS NOT present/occurring in the response
 
 Positive criterion: "States Q4 2023 base margin as 17.2%"
-Output: "The Q4 2023 base margin was 17.2% before adjustments."
+Response: "The Q4 2023 base margin was 17.2% before adjustments."
 {
 "criterion_status": "MET",
-"explanation": "The output states Q4 2023 base margin as 17.2%, as required."
+"explanation": "The response states Q4 2023 base margin as 17.2%, as required."
 }
 
 Negative criterion: "States that the patient has diabetes"
-Output: "This patient does not have diabetes."
+Response: "This patient does not have diabetes."
 {
 "criterion_status": "UNMET",
-"explanation": "The output explicitly states the patient does NOT have diabetes, so this error is \
+"explanation": "The response explicitly states the patient does NOT have diabetes, so this error is \
 not present."
 }
 
@@ -164,17 +164,17 @@ class PerCriterionOneShotGrader(Autograder):
             )
 
         criteria_text = "\n".join(criteria_lines)
-        query_text = f"<input>{query}</input>" if query else ""
-        user_prompt = f"""Evaluate the output against the following criteria:
+        query_text = f"<query>{query}</query>" if query else ""
+        user_prompt = f"""Evaluate the response against the following criteria:
 <criteria>
 {criteria_text}
 </criteria>
 
 {query_text}
 
-<output>
+<response>
 {to_grade}
-</output>
+</response>
 
 Provide your evaluation as JSON only."""
 

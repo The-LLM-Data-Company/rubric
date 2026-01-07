@@ -6,10 +6,10 @@ import json
 import logging
 
 from rubric.autograders import Autograder
-
-logger = logging.getLogger(__name__)
 from rubric.types import Criterion, EvaluationReport, GenerateFn, LengthPenalty
 from rubric.utils import default_generate_fn, parse_json_to_dict
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_SYSTEM_PROMPT = """You are evaluating an output for a given query against a list of \
 criteria.
@@ -101,12 +101,12 @@ class RubricAsJudgeGrader(Autograder):
         length_penalty: LengthPenalty | None = None,
         normalize: bool = True,
     ):
-        super().__init__(generate_fn=generate_fn, length_penalty=length_penalty, normalize=normalize)
+        super().__init__(
+            generate_fn=generate_fn, length_penalty=length_penalty, normalize=normalize
+        )
         self.system_prompt = system_prompt
 
-    async def judge(
-        self, to_grade: str, rubric: list[Criterion], query: str | None = None
-    ) -> dict:
+    async def judge(self, to_grade: str, rubric: list[Criterion], query: str | None = None) -> dict:
         """Judge the submission and return LLM score with rubric weight info.
 
         Returns:
@@ -168,9 +168,7 @@ Return your evaluation as JSON only."""
             "error": error,
         }
 
-    async def aggregate(
-        self, judge_results: dict, *, normalize: bool = True
-    ) -> EvaluationReport:
+    async def aggregate(self, judge_results: dict, *, normalize: bool = True) -> EvaluationReport:
         """Aggregate judge results into an EvaluationReport.
 
         Computes a synthetic raw_score with weighted-sum semantics for consistency

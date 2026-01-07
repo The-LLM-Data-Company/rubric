@@ -1,12 +1,9 @@
 """Tests for thinking/output token support."""
 
-import warnings
-
 import pytest
 
 from rubric import (
     LengthPenalty,
-    Rubric,
     ThinkingOutputDict,
     compute_length_penalty,
     normalize_to_grade_input,
@@ -93,9 +90,7 @@ class TestComputeLengthPenaltyWithPenaltyType:
 
     def test_all_counts_both_sections(self):
         """Test ALL counts both thinking and output."""
-        config = LengthPenalty(
-            free_budget=5, max_cap=10, penalty_at_cap=1.0, penalty_type="ALL"
-        )
+        config = LengthPenalty(free_budget=5, max_cap=10, penalty_at_cap=1.0, penalty_type="ALL")
         text = ThinkingOutputDict(thinking="one two", output="three four five six")
         penalty = compute_length_penalty(text, config)
         assert penalty > 0  # Combined length exceeds budget

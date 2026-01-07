@@ -69,6 +69,17 @@ For each criterion, provide:
 - A criterion_status (MET or UNMET)
 - An explanation containing a brief justification
 
+THINKING AND OUTPUT SECTIONS:
+The submission may contain <thinking> and <output> sections:
+- <thinking>: The model's internal reasoning process before answering
+- <output>: The final response presented to the user
+
+Unless a criterion specifically mentions "reasoning", "thinking", or "thought process",
+evaluate ONLY the <output> section. The thinking section shows how the model arrived
+at its answer but is not part of the user-facing response.
+
+If the submission has no section markers, treat the entire text as the output.
+
 Do NOT provide an overall score - only evaluate each criterion.
 
 Respond ONLY with valid JSON in this exact format:
@@ -115,16 +126,16 @@ class PerCriterionOneShotGrader(Autograder):
 
         criteria_text = "\n".join(criteria_lines)
         query_text = f"<input>{query}</input>" if query else ""
-        user_prompt = f"""Evaluate the output against the following criteria:
+        user_prompt = f"""Evaluate the submission against the following criteria:
 <criteria>
 {criteria_text}
 </criteria>
 
 {query_text}
 
-<output>
+<submission>
 {to_grade}
-</output>
+</submission>
 
 Provide your evaluation as JSON only."""
 

@@ -113,17 +113,6 @@ Output: "Locations are only in United States and Canada."
 entails no China location without mentioning China."
 }
 
-THINKING AND OUTPUT SECTIONS:
-The submission may contain <thinking> and <output> sections:
-- <thinking>: The model's internal reasoning process before answering
-- <output>: The final response presented to the user
-
-Unless a criterion specifically mentions "reasoning", "thinking", or "thought process",
-evaluate ONLY the <output> section. The thinking section shows how the model arrived
-at its answer but is not part of the user-facing response.
-
-If the submission has no section markers, treat the entire text as the output.
-
 Return only raw JSON starting with {, no back-ticks, no 'json' prefix."""
 
 
@@ -158,9 +147,9 @@ class PerCriterionGrader(Autograder):
 
 {query_text}
 
-<submission>
+<output>
 {to_grade}
-</submission>"""
+</output>"""
 
         try:
             response = await self.generate(

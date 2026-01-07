@@ -30,10 +30,52 @@ async def test_rubric_as_judge_grader_handles_invalid_json(sample_rubric):
         rubric=sample_rubric.rubric,
     )
     assert judge_result["llm_score"] == 0.0
+    assert judge_result["error"] is not None
+    assert "Failed to parse" in judge_result["error"]
 
     report = await grader.aggregate(judge_result)
     assert report.score == 0.0
     assert report.report is None
+    assert report.error is not None
+    assert "Failed to parse" in report.error
+
+
+@pytest.mark.asyncio
+async def test_rubric_as_judge_grader_error_field_none_on_success(sample_rubric):
+    """Test that error field is None when parsing succeeds."""
+    async def good_generate(system_prompt: str, user_prompt: str) -> str:
+        return json.dumps({"overall_score": 85})
+
+    grader = RubricAsJudgeGrader(generate_fn=good_generate)
+    result = await sample_rubric.grade("Test output", autograder=grader)
+
+    assert result.error is None
+    assert result.score == pytest.approx(0.85)
+
+
+@pytest.mark.asyncio
+async def test_rubric_as_judge_grader_error_field_with_various_parse_failures():
+    """Test error field is set for various parse failure scenarios."""
+    rubric = Rubric([Criterion(weight=1.0, requirement="Is helpful")])
+
+    # Test non-JSON response
+    async def non_json_generate(system_prompt: str, user_prompt: str) -> str:
+        return "I'd rate this about 85 out of 100."
+
+    grader = RubricAsJudgeGrader(generate_fn=non_json_generate)
+    result = await rubric.grade("Test", autograder=grader)
+    assert result.error is not None
+    assert result.score == 0.0
+
+    # Test JSON without overall_score (should not error, defaults to 0)
+    async def missing_score_generate(system_prompt: str, user_prompt: str) -> str:
+        return json.dumps({"some_other_field": 85})
+
+    grader2 = RubricAsJudgeGrader(generate_fn=missing_score_generate)
+    result2 = await rubric.grade("Test", autograder=grader2)
+    # Missing field uses default of 0, not an error
+    assert result2.error is None
+    assert result2.score == 0.0
 
 
 @pytest.mark.asyncio

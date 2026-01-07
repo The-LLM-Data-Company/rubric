@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from rubric.autograders import Autograder
+
+logger = logging.getLogger(__name__)
 from rubric.types import Criterion, EvaluationReport, GenerateFn, LengthPenalty
 from rubric.utils import default_generate_fn, parse_json_to_dict
 
@@ -146,18 +149,23 @@ using the logic from the system prompt, and return a single holistic score from 
 
 Return your evaluation as JSON only."""
 
+        error = None
         try:
             response = await self.generate(self.system_prompt, user_prompt)
             result = parse_json_to_dict(response)
             overall_score_raw = result.get("overall_score", 0)
             llm_score = float(overall_score_raw)
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             llm_score = 0.0
+            error = f"Failed to parse judge response: {e}"
+            response_preview = response[:200] if "response" in dir() else "N/A"
+            logger.warning(f"{error}. Response: {response_preview}...")
 
         return {
             "llm_score": llm_score,
             "total_positive_weight": total_positive_weight,
             "total_negative_weight": total_negative_weight,
+            "error": error,
         }
 
     async def aggregate(
@@ -171,6 +179,7 @@ Return your evaluation as JSON only."""
         llm_score = judge_results["llm_score"]
         total_positive_weight = judge_results["total_positive_weight"]
         total_negative_weight = judge_results["total_negative_weight"]
+        error = judge_results.get("error")
 
         # Preserve original LLM output for debugging
         llm_raw_score = llm_score
@@ -195,5 +204,9 @@ Return your evaluation as JSON only."""
             score = raw_score
 
         return EvaluationReport(
-            score=score, raw_score=raw_score, llm_raw_score=llm_raw_score, report=None
+            score=score,
+            raw_score=raw_score,
+            llm_raw_score=llm_raw_score,
+            report=None,
+            error=error,
         )

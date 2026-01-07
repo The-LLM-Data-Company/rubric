@@ -124,12 +124,16 @@ class EvaluationReport(BaseModel):
             For RubricAsJudgeGrader: the 0-100 holistic score from the LLM.
             Useful for debugging and understanding the LLM's actual output.
         report: Optional per-criterion breakdown (None for RubricAsJudgeGrader).
+        error: Optional error message if grading failed (e.g., JSON parse error).
+            When set, score defaults to 0.0 and other fields may be None.
+            Training pipelines should filter out results where error is not None.
     """
 
     score: float
     raw_score: float | None = None
     llm_raw_score: float | None = None
     report: list[CriterionReport] | None = None
+    error: str | None = None
 
 
 class GenerateFn(Protocol):

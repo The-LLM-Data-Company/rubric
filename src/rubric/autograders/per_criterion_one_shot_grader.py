@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 
 from rubric.autograders import Autograder
 from rubric.types import Criterion, CriterionReport, EvaluationReport, GenerateFn, LengthPenalty
@@ -94,6 +95,53 @@ Respond ONLY with valid JSON in this exact format:
   ]
 }"""
 
+# Alternative key names that LLMs might use for criterion_number
+_ALTERNATIVE_CRITERION_NUMBER_KEYS = ["criterionNumber", "criterion_num", "id", "number", "index"]
+
+
+def _find_evaluation(evaluations: list, index: int) -> dict | None:
+    """Find evaluation entry matching the given criterion index.
+
+    Handles common LLM variations:
+    - String numbers ("1" matches 1)
+    - Float numbers (1.0 matches 1)
+    - Alternative key names (criterionNumber, id, etc.)
+
+    Args:
+        evaluations: List of evaluation dicts from LLM response.
+        index: The 1-based criterion index to find.
+
+    Returns:
+        The matching evaluation dict, or None if not found.
+    """
+    for entry in evaluations:
+        # Try primary key with type coercion
+        criterion_num = entry.get("criterion_number")
+        if criterion_num is not None:
+            try:
+                if int(criterion_num) == index:
+                    return entry
+            except (TypeError, ValueError):
+                pass
+
+        # Try alternative keys
+        for key in _ALTERNATIVE_CRITERION_NUMBER_KEYS:
+            alt_num = entry.get(key)
+            if alt_num is not None:
+                try:
+                    if int(alt_num) == index:
+                        warnings.warn(
+                            f"LLM used '{key}' instead of 'criterion_number'. "
+                            f"Consider updating your prompt or LLM.",
+                            UserWarning,
+                            stacklevel=4,
+                        )
+                        return entry
+                except (TypeError, ValueError):
+                    pass
+
+    return None
+
 
 class PerCriterionOneShotGrader(Autograder):
     """Concrete autograder that judges every criterion within a single LLM response."""
@@ -159,10 +207,7 @@ Provide your evaluation as JSON only."""
 
         criterion_reports: list[CriterionReport] = []
         for index, criterion in enumerate(rubric, start=1):
-            eval_data = next(
-                (entry for entry in evaluations if entry.get("criterion_number") == index),
-                None,
-            )
+            eval_data = _find_evaluation(evaluations, index)
 
             if eval_data:
                 criterion_status = str(eval_data.get("criterion_status", "")).strip().upper()

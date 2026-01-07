@@ -1,4 +1,5 @@
 import json
+import warnings
 
 import pytest
 
@@ -188,3 +189,104 @@ async def test_parse_failure_no_bias_one_shot():
     assert verdicts["Is helpful"] == "UNMET"
     assert verdicts["Contains errors"] == "MET"
     assert verdicts["Is harmful"] == "MET"
+
+
+@pytest.mark.asyncio
+async def test_string_criterion_numbers_are_matched():
+    """String criterion numbers should be coerced to int for matching."""
+    rubric = Rubric([
+        Criterion(weight=1.0, requirement="Is accurate"),
+        Criterion(weight=1.0, requirement="Is helpful"),
+    ])
+
+    async def generate_with_strings(system_prompt: str, user_prompt: str) -> str:
+        return json.dumps({
+            "criteria_evaluations": [
+                {"criterion_number": "1", "criterion_status": "MET", "explanation": "Good"},
+                {"criterion_number": "2", "criterion_status": "MET", "explanation": "Good"},
+            ]
+        })
+
+    grader = PerCriterionOneShotGrader(generate_fn=generate_with_strings)
+    result = await rubric.grade("Test", autograder=grader)
+
+    assert result.score == pytest.approx(1.0)
+    assert all(r.verdict == "MET" for r in result.report)
+
+
+@pytest.mark.asyncio
+async def test_float_criterion_numbers_are_matched():
+    """Float criterion numbers should be coerced to int for matching."""
+    rubric = Rubric([
+        Criterion(weight=1.0, requirement="Is accurate"),
+        Criterion(weight=1.0, requirement="Is helpful"),
+    ])
+
+    async def generate_with_floats(system_prompt: str, user_prompt: str) -> str:
+        return json.dumps({
+            "criteria_evaluations": [
+                {"criterion_number": 1.0, "criterion_status": "MET", "explanation": "Good"},
+                {"criterion_number": 2.0, "criterion_status": "MET", "explanation": "Good"},
+            ]
+        })
+
+    grader = PerCriterionOneShotGrader(generate_fn=generate_with_floats)
+    result = await rubric.grade("Test", autograder=grader)
+
+    assert result.score == pytest.approx(1.0)
+    assert all(r.verdict == "MET" for r in result.report)
+
+
+@pytest.mark.asyncio
+async def test_alternative_key_names_matched_with_warning():
+    """Alternative key names like 'id' should match with a warning."""
+    rubric = Rubric([
+        Criterion(weight=1.0, requirement="Is accurate"),
+        Criterion(weight=1.0, requirement="Is helpful"),
+    ])
+
+    async def generate_with_alt_keys(system_prompt: str, user_prompt: str) -> str:
+        return json.dumps({
+            "criteria_evaluations": [
+                {"id": 1, "criterion_status": "MET", "explanation": "Good"},
+                {"id": 2, "criterion_status": "MET", "explanation": "Good"},
+            ]
+        })
+
+    grader = PerCriterionOneShotGrader(generate_fn=generate_with_alt_keys)
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        result = await rubric.grade("Test", autograder=grader)
+
+        # Should have warnings about alternative key usage
+        assert len(w) >= 1
+        assert any("'id' instead of 'criterion_number'" in str(warning.message) for warning in w)
+
+    assert result.score == pytest.approx(1.0)
+    assert all(r.verdict == "MET" for r in result.report)
+
+
+@pytest.mark.asyncio
+async def test_mixed_criterion_number_types():
+    """Mixed types (int, string, float) should all be matched correctly."""
+    rubric = Rubric([
+        Criterion(weight=1.0, requirement="First"),
+        Criterion(weight=1.0, requirement="Second"),
+        Criterion(weight=1.0, requirement="Third"),
+    ])
+
+    async def generate_mixed(system_prompt: str, user_prompt: str) -> str:
+        return json.dumps({
+            "criteria_evaluations": [
+                {"criterion_number": 1, "criterion_status": "MET", "explanation": "Int"},
+                {"criterion_number": "2", "criterion_status": "MET", "explanation": "String"},
+                {"criterion_number": 3.0, "criterion_status": "MET", "explanation": "Float"},
+            ]
+        })
+
+    grader = PerCriterionOneShotGrader(generate_fn=generate_mixed)
+    result = await rubric.grade("Test", autograder=grader)
+
+    assert result.score == pytest.approx(1.0)
+    assert all(r.verdict == "MET" for r in result.report)

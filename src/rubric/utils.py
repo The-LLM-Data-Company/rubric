@@ -159,16 +159,75 @@ def compute_length_penalty(text: str | ThinkingOutputDict, config: LengthPenalty
     return config.penalty_at_cap * (frac**config.exponent)
 
 
+def _find_matching_brace(text: str, start: int) -> int:
+    """Find the index of the closing brace matching the opening brace at start.
+
+    Properly handles nested braces and braces inside JSON strings.
+
+    Args:
+        text: The text to search in.
+        start: Index of the opening brace '{'.
+
+    Returns:
+        Index of the matching closing brace, or -1 if not found.
+    """
+    depth = 0
+    in_string = False
+    escape = False
+
+    for i in range(start, len(text)):
+        char = text[i]
+
+        if escape:
+            escape = False
+            continue
+
+        if char == "\\":
+            escape = True
+            continue
+
+        if char == '"' and not escape:
+            in_string = not in_string
+            continue
+
+        if in_string:
+            continue
+
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+
+    return -1
+
+
 def parse_json_to_dict(json_string: str) -> dict:
-    """Parse JSON string with various formats (including markdown fences)."""
+    """Parse JSON string with various formats (including markdown fences).
+
+    Handles common LLM output patterns:
+    - Markdown code fences: ```json {...} ```
+    - Leading text before JSON: "Here is the result: {...}"
+    - Trailing text after JSON: "{...} I hope this helps!"
+    """
     cleaned = re.sub(r"^```json\s*|\s*```$", "", json_string.strip(), flags=re.IGNORECASE)
 
     cleaned = re.sub(r"^\s*json\s*", "", cleaned, flags=re.IGNORECASE)
 
-    if cleaned and cleaned[0] != "{":
-        brace = cleaned.find("{")
-        if brace != -1:
-            cleaned = cleaned[brace:]
+    # Find opening brace
+    start = cleaned.find("{")
+    if start == -1:
+        # No JSON object found, let json.loads raise appropriate error
+        return json.loads(cleaned)
+
+    # Find matching closing brace
+    end = _find_matching_brace(cleaned, start)
+    if end != -1:
+        cleaned = cleaned[start : end + 1]
+    else:
+        # No matching brace found, try from start and let json.loads handle it
+        cleaned = cleaned[start:]
 
     return json.loads(cleaned)
 

@@ -29,6 +29,28 @@ PenaltyType = Literal["ALL", "OUTPUT_ONLY", "THINKING_ONLY"]
 """Type for penalty_type field: specifies which sections to count for length penalty."""
 
 
+class DefaultFallbackVerdicts(TypedDict, total=False):
+    """Configuration for fallback verdicts when parsing fails.
+
+    If provided to an autograder, parsing failures will use these verdicts instead of raising.
+    If None is passed, parsing failures will raise a ValueError.
+
+    Attributes:
+        positive: Fallback verdict for positive criteria (weight >= 0). Defaults to "UNMET".
+        negative: Fallback verdict for negative criteria (weight < 0). Defaults to "UNMET".
+
+    Example:
+        >>> # Conservative fallbacks (worst-case assumptions)
+        >>> fallbacks = {"positive": "UNMET", "negative": "MET"}
+        >>>
+        >>> # All UNMET fallbacks
+        >>> fallbacks = {"positive": "UNMET", "negative": "UNMET"}
+    """
+
+    positive: Literal["MET", "UNMET"]
+    negative: Literal["MET", "UNMET"]
+
+
 class LengthPenalty(BaseModel):
     """Configuration for applying length-based penalties during grading.
 

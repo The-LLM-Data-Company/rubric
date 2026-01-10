@@ -31,7 +31,11 @@ async def test_per_criterion_one_shot_grader_handles_invalid_json(sample_rubric)
     async def bad_generate(system_prompt: str, user_prompt: str) -> str:
         return "not-json"
 
-    grader = PerCriterionOneShotGrader(generate_fn=bad_generate)
+    grader = PerCriterionOneShotGrader(
+        generate_fn=bad_generate,
+        default_fallback_verdicts={"positive": "UNMET", "negative": "UNMET"},
+        max_retries=0,
+    )
 
     judge_results = await grader.judge(
         to_grade="Example submission",
@@ -44,7 +48,7 @@ async def test_per_criterion_one_shot_grader_handles_invalid_json(sample_rubric)
 
     for criterion_report in report.report:
         assert criterion_report.verdict == "UNMET"
-        assert "Error parsing judge response" in criterion_report.reason
+        assert "Failed to parse judge response" in criterion_report.reason
 
 
 @pytest.mark.asyncio

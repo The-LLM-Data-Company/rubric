@@ -3,7 +3,14 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from rubric.types import Criterion, EvaluationReport, GenerateFn, LengthPenalty, ToGradeInput
+from rubric.types import (
+    Criterion,
+    DefaultFallbackVerdicts,
+    EvaluationReport,
+    GenerateFn,
+    LengthPenalty,
+    ToGradeInput,
+)
 from rubric.utils import compute_length_penalty, normalize_to_grade_input
 
 
@@ -21,6 +28,10 @@ class Autograder(ABC):
             final score.
         normalize: If True (default), scores are normalized to 0-1. If False, raw weighted
             sums are returned, which is useful for RL training scenarios.
+        max_retries: Number of retry attempts when parsing fails (default 2, meaning 3 total attempts).
+        default_fallback_verdicts: If provided, use these verdicts on parse failure instead of raising.
+            Dict with optional 'positive' and 'negative' keys specifying fallback verdicts.
+            If None (default), raise ValueError on parse failure.
     """
 
     def __init__(
@@ -28,10 +39,14 @@ class Autograder(ABC):
         generate_fn: GenerateFn | None = None,
         length_penalty: LengthPenalty | None = None,
         normalize: bool = True,
+        max_retries: int = 2,
+        default_fallback_verdicts: DefaultFallbackVerdicts | None = None,
     ):
         self.generate_fn: GenerateFn | None = generate_fn
         self.length_penalty: LengthPenalty | None = length_penalty
         self.normalize: bool = normalize
+        self.max_retries: int = max_retries
+        self.default_fallback_verdicts: DefaultFallbackVerdicts | None = default_fallback_verdicts
 
     async def generate(self, system_prompt: str, user_prompt: str, **kwargs: Any) -> str:
         """Invoke the injected LLM callable with explicit system/user prompts."""

@@ -58,6 +58,30 @@ class EvaluationReport(BaseModel):
 - Training pipelines should filter out results where `error is not None` to avoid corrupted data.
 - A warning is logged when parse errors occur, including a preview of the unparseable response.
 
+**Retry and Fallback Behavior:**
+- By default, autograders retry up to 2 times (3 total attempts) when parsing fails.
+- If all retries fail, a `ValueError` is raised (loud failure).
+- Set `default_fallback_verdicts` to configure fallback verdicts per criterion type instead of raising.
+- Configure `max_retries` to adjust the number of retry attempts.
+- We recommend using structured outputs in your `generate_fn` when possible to avoid parse failures.
+
+### `DefaultFallbackVerdicts`
+Configuration for fallback verdicts when parsing fails:
+```python
+class DefaultFallbackVerdicts(TypedDict, total=False):
+    positive: Literal["MET", "UNMET"]  # Fallback for positive criteria (default: "UNMET")
+    negative: Literal["MET", "UNMET"]  # Fallback for negative criteria (default: "UNMET")
+```
+
+Example:
+```python
+# Conservative fallbacks (worst-case assumptions)
+grader = PerCriterionGrader(default_fallback_verdicts={"positive": "UNMET", "negative": "MET"})
+
+# All UNMET fallbacks
+grader = PerCriterionGrader(default_fallback_verdicts={"positive": "UNMET", "negative": "UNMET"})
+```
+
 ### `LengthPenalty`
 Configuration for penalizing overly long outputs (see Length Penalty section below).
 
@@ -82,6 +106,8 @@ def __init__(
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,     # Customizable system prompt
     length_penalty: LengthPenalty | None = None,    # Optional length penalty config
     normalize: bool = True,                          # If False, return raw weighted sums
+    max_retries: int = 2,                            # Retry attempts on parse failure (3 total)
+    default_fallback_verdicts: DefaultFallbackVerdicts | None = None,  # Fallback verdicts on failure
 ):
 ```
 
@@ -294,6 +320,27 @@ await rubric.grade(
 await rubric.grade("Just a regular response")  # Treated as all output
 ```
 
+### XML Tag Structure in Prompts
+
+The autograders wrap your content in `<response>` XML tags when sending to the LLM. If a `query` is provided, it's wrapped in `<query>` tags (this is optional). If you provide a custom `system_prompt`, ensure it handles the response content appropriately. The response may contain:
+
+**Nested structure (thinking/output):**
+```xml
+<response>
+<thinking>{thinking_content}</thinking>
+<output>{output_content}</output>
+</response>
+```
+
+**Plain string:**
+```xml
+<response>
+{content}
+</response>
+```
+
+The structure depends on what you pass to `rubric.grade()`. Customize your system prompt accordingly.
+
 ### Penalty Type Selection
 
 Use the `penalty_type` parameter in `LengthPenalty` to control which sections are counted:
@@ -471,10 +518,11 @@ from rubric import (
     Rubric,
     Criterion,
     CriterionReport,
+    DefaultFallbackVerdicts,
     EvaluationReport,
     LengthPenalty,
     CountFn,
-    # New thinking/output support
+    # Thinking/output support
     PenaltyType,
     ThinkingOutputDict,
     ToGradeInput,

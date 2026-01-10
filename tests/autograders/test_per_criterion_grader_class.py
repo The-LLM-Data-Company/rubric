@@ -33,7 +33,11 @@ async def test_per_criterion_grader_handles_invalid_json(sample_rubric):
     async def bad_generate(system_prompt: str, user_prompt: str) -> str:
         return "not-json"
 
-    grader = PerCriterionGrader(generate_fn=bad_generate)
+    grader = PerCriterionGrader(
+        generate_fn=bad_generate,
+        default_fallback_verdicts={"positive": "UNMET", "negative": "UNMET"},
+        max_retries=0,
+    )
 
     report = await grader.grade(
         to_grade="Example submission",
@@ -45,7 +49,7 @@ async def test_per_criterion_grader_handles_invalid_json(sample_rubric):
 
     for criterion_report in report.report:
         assert criterion_report.verdict == "UNMET"
-        assert "Error parsing judge response" in criterion_report.reason
+        assert "Failed to parse judge response" in criterion_report.reason
 
 
 @pytest.mark.asyncio
@@ -142,7 +146,7 @@ async def test_all_negative_criteria_partial_errors_returns_partial_score():
             return json.dumps({"criterion_status": "MET", "explanation": "Error is present"})
         return json.dumps({"criterion_status": "UNMET", "explanation": "Error not present"})
 
-    grader = PerCriterionGrader(generate_fn=generate_one_error)
+    grader = PerCriterionGrader(generate_fn=generate_one_error) 
     result = await rubric.grade("Text with one error", autograder=grader)
 
     # 1 error out of 3: score = 1.0 + (-1.0 / 3.0) = 2/3 ≈ 0.667

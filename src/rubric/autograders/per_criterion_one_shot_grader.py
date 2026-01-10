@@ -6,7 +6,14 @@ import json
 import warnings
 
 from rubric.autograders import Autograder
-from rubric.types import Criterion, CriterionReport, EvaluationReport, GenerateFn, LengthPenalty
+from rubric.types import (
+    Criterion,
+    CriterionReport,
+    DefaultFallbackVerdicts,
+    EvaluationReport,
+    GenerateFn,
+    LengthPenalty,
+)
 from rubric.utils import default_generate_fn, parse_json_to_dict
 
 DEFAULT_SYSTEM_PROMPT = """You are evaluating a response for a given query against a list of \
@@ -142,9 +149,15 @@ class PerCriterionOneShotGrader(Autograder):
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         length_penalty: LengthPenalty | None = None,
         normalize: bool = True,
+        max_retries: int = 2,
+        default_fallback_verdicts: DefaultFallbackVerdicts | None = None,
     ):
         super().__init__(
-            generate_fn=generate_fn, length_penalty=length_penalty, normalize=normalize
+            generate_fn=generate_fn,
+            length_penalty=length_penalty,
+            normalize=normalize,
+            max_retries=max_retries,
+            default_fallback_verdicts=default_fallback_verdicts,
         )
         self.system_prompt = system_prompt
 
@@ -178,20 +191,35 @@ class PerCriterionOneShotGrader(Autograder):
 
 Provide your evaluation as JSON only."""
 
-        try:
-            response = await self.generate(self.system_prompt, user_prompt)
-            result = parse_json_to_dict(response)
-            evaluations = result.get("criteria_evaluations", [])
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
-            return [
-                CriterionReport(
-                    requirement=criterion.requirement,
-                    verdict="UNMET",
-                    reason=f"Error parsing judge response: {error}",
-                    weight=criterion.weight,
-                )
-                for criterion in rubric
-            ]
+        last_error: Exception | None = None
+        evaluations: list = []
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = await self.generate(self.system_prompt, user_prompt)
+                result = parse_json_to_dict(response)
+                evaluations = result.get("criteria_evaluations", [])
+                last_error = None
+                break
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+                last_error = error
+                continue
+
+        if last_error is not None:
+            error_msg = f"Failed to parse judge response after {self.max_retries + 1} attempts: {last_error}"
+            if self.default_fallback_verdicts is not None:
+                return [
+                    CriterionReport(
+                        requirement=criterion.requirement,
+                        verdict=self.default_fallback_verdicts.get(
+                            "negative" if criterion.weight < 0 else "positive", "UNMET"
+                        ),
+                        reason=error_msg,
+                        weight=criterion.weight,
+                    )
+                    for criterion in rubric
+                ]
+            raise ValueError(error_msg)
 
         criterion_reports: list[CriterionReport] = []
         for index, criterion in enumerate(rubric, start=1):
@@ -219,6 +247,24 @@ Provide your evaluation as JSON only."""
     async def aggregate(
         self, judge_results: list[CriterionReport], *, normalize: bool = True
     ) -> EvaluationReport:
+        parse_errors = [
+            r for r in judge_results if r.reason.startswith("Failed to parse judge response")
+        ]
+        if parse_errors:
+            error_details = "; ".join(
+                f"criterion '{r.requirement[:50]}...': {r.reason}"
+                if len(r.requirement) > 50
+                else f"criterion '{r.requirement}': {r.reason}"
+                for r in parse_errors
+            )
+            return EvaluationReport(
+                score=0.0,
+                raw_score=0.0,
+                llm_raw_score=0.0,
+                report=judge_results,
+                error=f"Parse errors occurred: {error_details}",
+            )
+
         total_positive_weight = sum(max(0.0, report.weight) for report in judge_results)
         total_negative_weight = sum(
             abs(report.weight) for report in judge_results if report.weight < 0

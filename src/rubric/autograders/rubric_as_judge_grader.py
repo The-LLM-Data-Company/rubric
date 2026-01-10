@@ -6,7 +6,13 @@ import json
 import logging
 
 from rubric.autograders import Autograder
-from rubric.types import Criterion, EvaluationReport, GenerateFn, LengthPenalty
+from rubric.types import (
+    Criterion,
+    DefaultFallbackVerdicts,
+    EvaluationReport,
+    GenerateFn,
+    LengthPenalty,
+)
 from rubric.utils import default_generate_fn, parse_json_to_dict
 
 logger = logging.getLogger(__name__)
@@ -89,9 +95,15 @@ class RubricAsJudgeGrader(Autograder):
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         length_penalty: LengthPenalty | None = None,
         normalize: bool = True,
+        max_retries: int = 2,
+        default_fallback_verdicts: DefaultFallbackVerdicts | None = None,
     ):
         super().__init__(
-            generate_fn=generate_fn, length_penalty=length_penalty, normalize=normalize
+            generate_fn=generate_fn,
+            length_penalty=length_penalty,
+            normalize=normalize,
+            max_retries=max_retries,
+            default_fallback_verdicts=default_fallback_verdicts,
         )
         self.system_prompt = system_prompt
 
@@ -139,16 +151,29 @@ using the logic from the system prompt, and return a single holistic score from 
 Return your evaluation as JSON only."""
 
         error = None
-        try:
-            response = await self.generate(self.system_prompt, user_prompt)
-            result = parse_json_to_dict(response)
-            overall_score_raw = result.get("overall_score", 0)
-            llm_score = float(overall_score_raw)
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
-            llm_score = 0.0
-            error = f"Failed to parse judge response: {e}"
-            response_preview = response[:200] if "response" in dir() else "N/A"
+        last_error: Exception | None = None
+        llm_score = 0.0
+        response = ""
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = await self.generate(self.system_prompt, user_prompt)
+                result = parse_json_to_dict(response)
+                overall_score_raw = result.get("overall_score", 0)
+                llm_score = float(overall_score_raw)
+                last_error = None
+                break
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+                last_error = e
+                continue
+
+        if last_error is not None:
+            error = f"Failed to parse judge response after {self.max_retries + 1} attempts: {last_error}"
+            response_preview = response[:200] if response else "N/A"
             logger.warning(f"{error}. Response: {response_preview}...")
+            if self.default_fallback_verdicts is not None:
+                # Silently fall back to llm_score=0 when fallbacks are configured
+                error = None
 
         return {
             "llm_score": llm_score,

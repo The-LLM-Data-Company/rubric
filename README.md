@@ -186,6 +186,23 @@ grader = PerCriterionGrader(
 )
 ```
 
+**XML Tag Structure:** The autograders wrap content in `<response>` XML tags. If a `query` is provided (optional), it's wrapped in `<query>` tags. If you provide a custom system prompt, ensure it handles the response structure you're using:
+
+```xml
+<!-- Plain string response -->
+<response>
+{content}
+</response>
+
+<!-- Or nested with thinking/output -->
+<response>
+<thinking>{thinking_content}</thinking>
+<output>{output_content}</output>
+</response>
+```
+
+The structure depends on what you pass to `rubric.grade()`. Customize your system prompt to handle your preferred format.
+
 ## Customization
 
 You can customize grading at multiple levels:
@@ -209,27 +226,36 @@ Override the entire `grade()` method for complete end-to-end control over the gr
 
 ## Error Handling
 
-### Parse Failure Behavior
+### Retry and Fallback Behavior
 
-When the LLM returns invalid JSON or the response cannot be parsed, the autograders use **conservative defaults** to avoid biasing scores:
-
-| Criterion Type | Default Verdict | Rationale |
-|----------------|-----------------|-----------|
-| Positive (weight > 0) | UNMET | Assume requirement not met |
-| Negative (weight < 0) | MET | Assume error is present |
-
-This ensures parse failures result in worst-case scores rather than artificially inflating results. For example, if an error-detection rubric has many negative criteria, parse failures won't incorrectly report "no errors found."
+By default, autograders retry up to 2 times (3 total attempts) when parsing fails. If all retries fail, a `ValueError` is raised.
 
 ```python
-# Example: Parse failure with mixed rubric
-rubric = Rubric([
-    Criterion(weight=1.0, requirement="Is helpful"),      # → UNMET on parse failure
-    Criterion(weight=-1.0, requirement="Contains errors"), # → MET on parse failure
-])
+# Default: raise ValueError on parse failure
+grader = PerCriterionGrader(
+    generate_fn=your_function,
+    max_retries=2,  # Retry up to 2 times (3 total attempts)
+)
 
-# If LLM returns invalid JSON, score = 0.0 (worst case)
-# rather than being artificially inflated
+# Configure fallback verdicts per criterion type
+grader = PerCriterionGrader(
+    generate_fn=your_function,
+    default_fallback_verdicts={"positive": "UNMET", "negative": "UNMET"},
+)
+
+# Conservative fallbacks (worst-case assumptions)
+grader = PerCriterionGrader(
+    generate_fn=your_function,
+    default_fallback_verdicts={"positive": "UNMET", "negative": "MET"},
+)
 ```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `max_retries` | 2 | Number of retry attempts on parse failure |
+| `default_fallback_verdicts` | None | Dict with fallback verdicts per criterion type. If None, raise on failure. |
+
+**Note:** Parse failures indicate an issue with your LLM integration. We recommend using **structured outputs** in your `generate_fn` when possible to avoid parse failures.
 
 ## Score Fields
 
@@ -241,6 +267,7 @@ The `EvaluationReport` returned by `rubric.grade()` contains several score field
 | `raw_score` | Weighted sum before normalization. **Consistent semantics across all graders.** |
 | `llm_raw_score` | Original LLM output before conversion. For `RubricAsJudgeGrader`, this is the 0-100 score. |
 | `report` | Per-criterion breakdown (None for `RubricAsJudgeGrader`) |
+| `error` | Error message if grading failed after all retries (None on success) |
 
 **Cross-Grader Consistency:** `raw_score` uses weighted-sum semantics across all graders, enabling direct comparison:
 

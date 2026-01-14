@@ -42,8 +42,14 @@ async def main() -> None:
 
     graders = [
         ("PerCriterionGrader", PerCriterionGrader(generate_fn=default_per_criterion_generate_fn)),
-        ("PerCriterionOneShotGrader", PerCriterionOneShotGrader(generate_fn=default_oneshot_generate_fn)),
-        ("RubricAsJudgeGrader", RubricAsJudgeGrader(generate_fn=default_rubric_as_judge_generate_fn)),
+        (
+            "PerCriterionOneShotGrader",
+            PerCriterionOneShotGrader(generate_fn=default_oneshot_generate_fn),
+        ),
+        (
+            "RubricAsJudgeGrader",
+            RubricAsJudgeGrader(generate_fn=default_rubric_as_judge_generate_fn),
+        ),
     ]
 
     for name, grader in graders:

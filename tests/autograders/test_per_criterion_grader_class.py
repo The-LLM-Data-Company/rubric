@@ -119,7 +119,7 @@ async def test_all_negative_criteria_partial_errors_returns_partial_score():
             return PerCriterionOutput(criterion_status="MET", explanation="Error is present")
         return PerCriterionOutput(criterion_status="UNMET", explanation="Error not present")
 
-    grader = PerCriterionGrader(generate_fn=generate_one_error) 
+    grader = PerCriterionGrader(generate_fn=generate_one_error)
     result = await rubric.grade("Text with one error", autograder=grader)
 
     # 1 error out of 3: score = 1.0 + (-1.0 / 3.0) = 2/3 ≈ 0.667

@@ -34,9 +34,7 @@ class CriterionEvaluation(BaseModel):
     Used by OneShotOutput to represent each criterion's verdict.
     """
 
-    criterion_number: int = Field(
-        description="The 1-based index of the criterion being evaluated."
-    )
+    criterion_number: int = Field(description="The 1-based index of the criterion being evaluated.")
     criterion_status: Literal["MET", "UNMET"] = Field(
         description="Whether the criterion is present (MET) or absent (UNMET) in the response."
     )

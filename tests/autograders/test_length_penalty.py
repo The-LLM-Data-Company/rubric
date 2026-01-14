@@ -7,11 +7,13 @@ from rubric.utils import compute_length_penalty, word_count
 
 @pytest.fixture
 def simple_rubric() -> Rubric:
-    return Rubric([
-        Criterion(weight=10.0, requirement="Contains greeting"),
-        Criterion(weight=5.0, requirement="Contains farewell"),
-        Criterion(weight=-3.0, requirement="Contains profanity"),
-    ])
+    return Rubric(
+        [
+            Criterion(weight=10.0, requirement="Contains greeting"),
+            Criterion(weight=5.0, requirement="Contains farewell"),
+            Criterion(weight=-3.0, requirement="Contains profanity"),
+        ]
+    )
 
 
 @pytest.fixture
@@ -66,9 +68,7 @@ class TestWordCount:
 
 @pytest.mark.asyncio
 class TestLengthPenaltyWithNormalize:
-    async def test_normalized_score_with_length_penalty(
-        self, simple_rubric, all_met_generate_fn
-    ):
+    async def test_normalized_score_with_length_penalty(self, simple_rubric, all_met_generate_fn):
         grader = PerCriterionGrader(
             generate_fn=all_met_generate_fn,
             normalize=True,
@@ -137,9 +137,7 @@ class TestLengthPenaltyWithoutNormalize:
         assert result.raw_score == 15.0
         assert result.score == 15.0
 
-    async def test_raw_score_with_length_penalty_at_cap(
-        self, simple_rubric, all_met_generate_fn
-    ):
+    async def test_raw_score_with_length_penalty_at_cap(self, simple_rubric, all_met_generate_fn):
         grader = PerCriterionGrader(
             generate_fn=all_met_generate_fn,
             normalize=False,
@@ -156,9 +154,7 @@ class TestLengthPenaltyWithoutNormalize:
         assert result.raw_score == 15.0
         assert result.score == pytest.approx(-35.0)
 
-    async def test_raw_score_with_partial_length_penalty(
-        self, simple_rubric, all_met_generate_fn
-    ):
+    async def test_raw_score_with_partial_length_penalty(self, simple_rubric, all_met_generate_fn):
         grader = PerCriterionGrader(
             generate_fn=all_met_generate_fn,
             normalize=False,
@@ -178,9 +174,11 @@ class TestLengthPenaltyWithoutNormalize:
         assert result.score == pytest.approx(15.0 - expected_penalty)
 
     async def test_raw_score_can_go_negative(self, all_met_generate_fn):
-        rubric = Rubric([
-            Criterion(weight=5.0, requirement="Contains greeting"),
-        ])
+        rubric = Rubric(
+            [
+                Criterion(weight=5.0, requirement="Contains greeting"),
+            ]
+        )
 
         grader = PerCriterionGrader(
             generate_fn=all_met_generate_fn,
@@ -202,10 +200,12 @@ class TestLengthPenaltyWithoutNormalize:
 @pytest.mark.asyncio
 class TestLengthPenaltyWithNegativeCriteria:
     async def test_negative_criteria_met_reduces_raw_score(self):
-        rubric = Rubric([
-            Criterion(weight=10.0, requirement="Contains greeting"),
-            Criterion(weight=-5.0, requirement="Contains spam"),
-        ])
+        rubric = Rubric(
+            [
+                Criterion(weight=10.0, requirement="Contains greeting"),
+                Criterion(weight=-5.0, requirement="Contains spam"),
+            ]
+        )
 
         async def generate_with_spam(system_prompt: str, user_prompt: str) -> PerCriterionOutput:
             if "negative" in user_prompt.lower():
@@ -223,10 +223,12 @@ class TestLengthPenaltyWithNegativeCriteria:
         assert result.score == 5.0
 
     async def test_negative_criteria_with_length_penalty(self):
-        rubric = Rubric([
-            Criterion(weight=10.0, requirement="Contains greeting"),
-            Criterion(weight=-5.0, requirement="Contains spam"),
-        ])
+        rubric = Rubric(
+            [
+                Criterion(weight=10.0, requirement="Contains greeting"),
+                Criterion(weight=-5.0, requirement="Contains spam"),
+            ]
+        )
 
         async def generate_with_spam(system_prompt: str, user_prompt: str) -> PerCriterionOutput:
             if "negative" in user_prompt.lower():
@@ -248,4 +250,3 @@ class TestLengthPenaltyWithNegativeCriteria:
 
         assert result.raw_score == 5.0
         assert result.score == pytest.approx(-5.0)
-

@@ -102,7 +102,9 @@ async def test_all_negative_criteria_all_met_returns_zero_score():
     async def generate_all_errors(system_prompt: str, user_prompt: str) -> OneShotOutput:
         return OneShotOutput(
             criteria_evaluations=[
-                CriterionEvaluation(criterion_number=1, criterion_status="MET", explanation="Has errors"),
+                CriterionEvaluation(
+                    criterion_number=1, criterion_status="MET", explanation="Has errors"
+                ),
                 CriterionEvaluation(
                     criterion_number=2,
                     criterion_status="MET",
@@ -117,5 +119,3 @@ async def test_all_negative_criteria_all_met_returns_zero_score():
     assert result.score == pytest.approx(0.0)
     assert result.raw_score == pytest.approx(-2.0)
     assert all(r.verdict == "MET" for r in result.report)
-
-

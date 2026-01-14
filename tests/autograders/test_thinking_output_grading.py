@@ -110,7 +110,9 @@ class TestLengthPenaltyWithPenaltyType:
         grader = PerCriterionGrader(
             generate_fn=mock_generate_fn,
             length_penalty=LengthPenalty(
-                free_budget=5, max_cap=10, penalty_at_cap=0.5  # penalty_type="ALL" by default
+                free_budget=5,
+                max_cap=10,
+                penalty_at_cap=0.5,  # penalty_type="ALL" by default
             ),
         )
 

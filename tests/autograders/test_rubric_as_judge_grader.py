@@ -19,10 +19,12 @@ async def test_rubric_as_judge_grader_class_integration(
 @pytest.mark.asyncio
 async def test_rubric_as_judge_grader_raw_score_semantics():
     """Test that raw_score uses weighted-sum semantics consistent with other graders."""
-    rubric = Rubric([
-        Criterion(weight=10.0, requirement="Is accurate"),
-        Criterion(weight=5.0, requirement="Is helpful"),
-    ])
+    rubric = Rubric(
+        [
+            Criterion(weight=10.0, requirement="Is accurate"),
+            Criterion(weight=5.0, requirement="Is helpful"),
+        ]
+    )
 
     async def generate_85(system_prompt: str, user_prompt: str) -> RubricAsJudgeOutput:
         return RubricAsJudgeOutput(overall_score=85, explanation="Good quality")
@@ -41,9 +43,11 @@ async def test_rubric_as_judge_grader_raw_score_semantics():
 @pytest.mark.asyncio
 async def test_rubric_as_judge_grader_llm_raw_score_preserved():
     """Test that llm_raw_score preserves the original 0-100 LLM output."""
-    rubric = Rubric([
-        Criterion(weight=20.0, requirement="Is complete"),
-    ])
+    rubric = Rubric(
+        [
+            Criterion(weight=20.0, requirement="Is complete"),
+        ]
+    )
 
     async def generate_70(system_prompt: str, user_prompt: str) -> RubricAsJudgeOutput:
         return RubricAsJudgeOutput(overall_score=70, explanation="Decent")
@@ -60,10 +64,12 @@ async def test_rubric_as_judge_grader_llm_raw_score_preserved():
 @pytest.mark.asyncio
 async def test_rubric_as_judge_grader_normalize_false():
     """Test that normalize=False returns synthetic raw_score, not LLM score."""
-    rubric = Rubric([
-        Criterion(weight=10.0, requirement="Is accurate"),
-        Criterion(weight=5.0, requirement="Is helpful"),
-    ])
+    rubric = Rubric(
+        [
+            Criterion(weight=10.0, requirement="Is accurate"),
+            Criterion(weight=5.0, requirement="Is helpful"),
+        ]
+    )
 
     async def generate_80(system_prompt: str, user_prompt: str) -> RubricAsJudgeOutput:
         return RubricAsJudgeOutput(overall_score=80, explanation="Good")
@@ -81,10 +87,12 @@ async def test_rubric_as_judge_grader_normalize_false():
 @pytest.mark.asyncio
 async def test_rubric_as_judge_grader_all_negative_rubric():
     """Test raw_score semantics for all-negative rubrics."""
-    rubric = Rubric([
-        Criterion(weight=-2.0, requirement="Contains factual errors"),
-        Criterion(weight=-3.0, requirement="Contains harmful content"),
-    ])
+    rubric = Rubric(
+        [
+            Criterion(weight=-2.0, requirement="Contains factual errors"),
+            Criterion(weight=-3.0, requirement="Contains harmful content"),
+        ]
+    )
 
     # LLM score of 100 means no errors detected
     async def generate_100(system_prompt: str, user_prompt: str) -> RubricAsJudgeOutput:
@@ -115,10 +123,12 @@ async def test_rubric_as_judge_grader_all_negative_rubric():
 @pytest.mark.asyncio
 async def test_rubric_as_judge_grader_mixed_rubric():
     """Test raw_score semantics for mixed positive/negative rubrics."""
-    rubric = Rubric([
-        Criterion(weight=10.0, requirement="Is accurate"),
-        Criterion(weight=-5.0, requirement="Contains errors"),
-    ])
+    rubric = Rubric(
+        [
+            Criterion(weight=10.0, requirement="Is accurate"),
+            Criterion(weight=-5.0, requirement="Contains errors"),
+        ]
+    )
 
     async def generate_90(system_prompt: str, user_prompt: str) -> RubricAsJudgeOutput:
         return RubricAsJudgeOutput(overall_score=90, explanation="Excellent")

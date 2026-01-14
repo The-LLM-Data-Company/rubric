@@ -1,8 +1,8 @@
-import json
+import re
 
 import pytest
 
-from rubric import Criterion, Rubric
+from rubric import Criterion, PerCriterionOutput, Rubric
 from rubric.autograders import PerCriterionGrader
 from rubric.types import EvaluationReport
 
@@ -29,35 +29,8 @@ async def test_per_criterion_grader_class_integration(
 
 
 @pytest.mark.asyncio
-async def test_per_criterion_grader_handles_invalid_json(sample_rubric):
-    async def bad_generate(system_prompt: str, user_prompt: str) -> str:
-        return "not-json"
-
-    grader = PerCriterionGrader(
-        generate_fn=bad_generate,
-        default_fallback_verdicts={"positive": "UNMET", "negative": "UNMET"},
-        max_retries=0,
-    )
-
-    report = await grader.grade(
-        to_grade="Example submission",
-        rubric=sample_rubric.rubric,
-    )
-
-    assert report.score == 0.0
-    assert report.report is not None
-
-    for criterion_report in report.report:
-        assert criterion_report.verdict == "UNMET"
-        assert "Failed to parse judge response" in criterion_report.reason
-
-
-@pytest.mark.asyncio
 async def test_per_criterion_grader_with_negative_criterion_unmet(sample_rubric):
-    async def generate_with_issue(system_prompt: str, user_prompt: str) -> str:
-        import json
-        import re
-
+    async def generate_with_issue(system_prompt: str, user_prompt: str) -> PerCriterionOutput:
         criterion_type_match = re.search(
             r"<criterion_type>(.*?)</criterion_type>", user_prompt, re.DOTALL
         )
@@ -67,9 +40,9 @@ async def test_per_criterion_grader_with_negative_criterion_unmet(sample_rubric)
 
         if criterion_type == "negative":
             # For negative criteria: criterion_status="UNMET" means the error is NOT present (good!)
-            return json.dumps({"criterion_status": "UNMET", "explanation": "Error not present"})
+            return PerCriterionOutput(criterion_status="UNMET", explanation="Error not present")
         else:
-            return json.dumps({"criterion_status": "MET", "explanation": "Requirement met"})
+            return PerCriterionOutput(criterion_status="MET", explanation="Requirement met")
 
     grader = PerCriterionGrader(generate_fn=generate_with_issue)
 
@@ -92,8 +65,8 @@ async def test_all_negative_criteria_all_unmet_returns_perfect_score():
         ]
     )
 
-    async def generate_no_errors(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps({"criterion_status": "UNMET", "explanation": "Error not present"})
+    async def generate_no_errors(system_prompt: str, user_prompt: str) -> PerCriterionOutput:
+        return PerCriterionOutput(criterion_status="UNMET", explanation="Error not present")
 
     grader = PerCriterionGrader(generate_fn=generate_no_errors)
     result = await rubric.grade("Clean, accurate text", autograder=grader)
@@ -114,8 +87,8 @@ async def test_all_negative_criteria_all_met_returns_zero_score():
         ]
     )
 
-    async def generate_all_errors(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps({"criterion_status": "MET", "explanation": "Error is present"})
+    async def generate_all_errors(system_prompt: str, user_prompt: str) -> PerCriterionOutput:
+        return PerCriterionOutput(criterion_status="MET", explanation="Error is present")
 
     grader = PerCriterionGrader(generate_fn=generate_all_errors)
     result = await rubric.grade("Bad text with errors", autograder=grader)
@@ -138,13 +111,13 @@ async def test_all_negative_criteria_partial_errors_returns_partial_score():
 
     call_count = 0
 
-    async def generate_one_error(system_prompt: str, user_prompt: str) -> str:
+    async def generate_one_error(system_prompt: str, user_prompt: str) -> PerCriterionOutput:
         nonlocal call_count
         call_count += 1
         # First criterion has error, others don't
         if call_count == 1:
-            return json.dumps({"criterion_status": "MET", "explanation": "Error is present"})
-        return json.dumps({"criterion_status": "UNMET", "explanation": "Error not present"})
+            return PerCriterionOutput(criterion_status="MET", explanation="Error is present")
+        return PerCriterionOutput(criterion_status="UNMET", explanation="Error not present")
 
     grader = PerCriterionGrader(generate_fn=generate_one_error) 
     result = await rubric.grade("Text with one error", autograder=grader)
@@ -166,13 +139,13 @@ async def test_all_negative_criteria_with_different_weights():
 
     call_count = 0
 
-    async def generate_minor_error_only(system_prompt: str, user_prompt: str) -> str:
+    async def generate_minor_error_only(system_prompt: str, user_prompt: str) -> PerCriterionOutput:
         nonlocal call_count
         call_count += 1
         # Only the minor error (second criterion) is present
         if call_count == 2:
-            return json.dumps({"criterion_status": "MET", "explanation": "Minor error present"})
-        return json.dumps({"criterion_status": "UNMET", "explanation": "Error not present"})
+            return PerCriterionOutput(criterion_status="MET", explanation="Minor error present")
+        return PerCriterionOutput(criterion_status="UNMET", explanation="Error not present")
 
     grader = PerCriterionGrader(generate_fn=generate_minor_error_only)
     result = await rubric.grade("Text with minor error", autograder=grader)

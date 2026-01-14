@@ -1,10 +1,8 @@
 """Integration tests for thinking/output token support in grading."""
 
-import json
-
 import pytest
 
-from rubric import Criterion, LengthPenalty, Rubric
+from rubric import Criterion, LengthPenalty, PerCriterionOutput, Rubric
 from rubric.autograders import PerCriterionGrader
 
 
@@ -21,8 +19,8 @@ def simple_criteria():
 def mock_generate_fn():
     """Generate function that marks all criteria as MET."""
 
-    async def _generate(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps({"criterion_status": "MET", "explanation": "Requirement satisfied."})
+    async def _generate(system_prompt: str, user_prompt: str) -> PerCriterionOutput:
+        return PerCriterionOutput(criterion_status="MET", explanation="Requirement satisfied.")
 
     return _generate
 

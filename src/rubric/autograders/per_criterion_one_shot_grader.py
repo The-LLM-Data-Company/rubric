@@ -2,19 +2,15 @@
 
 from __future__ import annotations
 
-import json
-import warnings
-
 from rubric.autograders import Autograder
+from rubric.autograders.schemas import OneShotOutput
 from rubric.types import (
     Criterion,
     CriterionReport,
-    DefaultFallbackVerdicts,
     EvaluationReport,
-    GenerateFn,
     LengthPenalty,
+    OneShotGenerateFn,
 )
-from rubric.utils import default_generate_fn, parse_json_to_dict
 
 DEFAULT_SYSTEM_PROMPT = """You are evaluating a response for a given query against a list of \
 criteria.
@@ -91,74 +87,28 @@ Respond ONLY with valid JSON in this exact format:
   ]
 }"""
 
-# Alternative key names that LLMs might use for criterion_number
-_ALTERNATIVE_CRITERION_NUMBER_KEYS = ["criterionNumber", "criterion_num", "id", "number", "index"]
-
-
-def _find_evaluation(evaluations: list, index: int) -> dict | None:
-    """Find evaluation entry matching the given criterion index.
-
-    Handles common LLM variations:
-    - String numbers ("1" matches 1)
-    - Float numbers (1.0 matches 1)
-    - Alternative key names (criterionNumber, id, etc.)
-
-    Args:
-        evaluations: List of evaluation dicts from LLM response.
-        index: The 1-based criterion index to find.
-
-    Returns:
-        The matching evaluation dict, or None if not found.
-    """
-    for entry in evaluations:
-        # Try primary key with type coercion
-        criterion_num = entry.get("criterion_number")
-        if criterion_num is not None:
-            try:
-                if int(criterion_num) == index:
-                    return entry
-            except (TypeError, ValueError):
-                pass
-
-        # Try alternative keys
-        for key in _ALTERNATIVE_CRITERION_NUMBER_KEYS:
-            alt_num = entry.get(key)
-            if alt_num is not None:
-                try:
-                    if int(alt_num) == index:
-                        warnings.warn(
-                            f"LLM used '{key}' instead of 'criterion_number'. "
-                            f"Consider updating your prompt or LLM.",
-                            UserWarning,
-                            stacklevel=4,
-                        )
-                        return entry
-                except (TypeError, ValueError):
-                    pass
-
-    return None
-
 
 class PerCriterionOneShotGrader(Autograder):
-    """Concrete autograder that judges every criterion within a single LLM response."""
+    """Concrete autograder that judges every criterion within a single LLM response.
+
+    Args:
+        generate_fn: Typed generate function that returns validated OneShotOutput.
+            Users handle parsing, validation, and retries in their implementation.
+        system_prompt: System prompt for one-shot evaluation.
+        length_penalty: Optional length penalty configuration.
+        normalize: If True (default), normalize scores to 0-1.
+    """
 
     def __init__(
         self,
-        generate_fn: GenerateFn = default_generate_fn,
+        generate_fn: OneShotGenerateFn,
         *,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         length_penalty: LengthPenalty | None = None,
         normalize: bool = True,
-        max_retries: int = 2,
-        default_fallback_verdicts: DefaultFallbackVerdicts | None = None,
     ):
-        super().__init__(
-            generate_fn=generate_fn,
-            length_penalty=length_penalty,
-            normalize=normalize,
-            max_retries=max_retries,
-            default_fallback_verdicts=default_fallback_verdicts,
-        )
+        super().__init__(length_penalty=length_penalty, normalize=normalize)
+        self.generate_fn = generate_fn
         self.system_prompt = system_prompt
 
     async def judge(
@@ -191,80 +141,44 @@ class PerCriterionOneShotGrader(Autograder):
 
 Provide your evaluation as JSON only."""
 
-        last_error: Exception | None = None
-        evaluations: list = []
+        # Call generate_fn - user handles validation and retries
+        result: OneShotOutput = await self.generate_fn(self.system_prompt, user_prompt)
 
-        for attempt in range(self.max_retries + 1):
-            try:
-                response = await self.generate(self.system_prompt, user_prompt)
-                result = parse_json_to_dict(response)
-                evaluations = result.get("criteria_evaluations", [])
-                last_error = None
-                break
-            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
-                last_error = error
-                continue
+        # Create a mapping from criterion_number to evaluation
+        evaluation_map = {
+            eval_item.criterion_number: eval_item for eval_item in result.criteria_evaluations
+        }
 
-        if last_error is not None:
-            error_msg = f"Failed to parse judge response after {self.max_retries + 1} attempts: {last_error}"
-            if self.default_fallback_verdicts is not None:
-                return [
-                    CriterionReport(
-                        requirement=criterion.requirement,
-                        verdict=self.default_fallback_verdicts.get(
-                            "negative" if criterion.weight < 0 else "positive", "UNMET"
-                        ),
-                        reason=error_msg,
-                        weight=criterion.weight,
-                    )
-                    for criterion in rubric
-                ]
-            raise ValueError(error_msg)
-
+        # Build criterion reports matching rubric order
         criterion_reports: list[CriterionReport] = []
         for index, criterion in enumerate(rubric, start=1):
-            eval_data = _find_evaluation(evaluations, index)
+            eval_item = evaluation_map.get(index)
 
-            if eval_data:
-                criterion_status = str(eval_data.get("criterion_status", "")).strip().upper()
-                verdict = "MET" if criterion_status == "MET" else "UNMET"
-                explanation = str(eval_data.get("explanation", "No explanation provided"))
-            else:
-                verdict = "UNMET"
-                explanation = "Evaluation not found in response"
-
-            criterion_reports.append(
-                CriterionReport(
-                    requirement=criterion.requirement,
-                    verdict=verdict,
-                    reason=explanation,
-                    weight=criterion.weight,
+            if eval_item:
+                criterion_reports.append(
+                    CriterionReport(
+                        requirement=criterion.requirement,
+                        verdict=eval_item.criterion_status,
+                        reason=eval_item.explanation,
+                        weight=criterion.weight,
+                    )
                 )
-            )
+            else:
+                # Evaluation missing for this criterion number
+                criterion_reports.append(
+                    CriterionReport(
+                        requirement=criterion.requirement,
+                        verdict="UNMET",
+                        reason="Evaluation not found in response",
+                        weight=criterion.weight,
+                    )
+                )
 
         return criterion_reports
 
     async def aggregate(
         self, judge_results: list[CriterionReport], *, normalize: bool = True
     ) -> EvaluationReport:
-        parse_errors = [
-            r for r in judge_results if r.reason.startswith("Failed to parse judge response")
-        ]
-        if parse_errors:
-            error_details = "; ".join(
-                f"criterion '{r.requirement[:50]}...': {r.reason}"
-                if len(r.requirement) > 50
-                else f"criterion '{r.requirement}': {r.reason}"
-                for r in parse_errors
-            )
-            return EvaluationReport(
-                score=0.0,
-                raw_score=0.0,
-                llm_raw_score=0.0,
-                report=judge_results,
-                error=f"Parse errors occurred: {error_details}",
-            )
-
         total_positive_weight = sum(max(0.0, report.weight) for report in judge_results)
         total_negative_weight = sum(
             abs(report.weight) for report in judge_results if report.weight < 0

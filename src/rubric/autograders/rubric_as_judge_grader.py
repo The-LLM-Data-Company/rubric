@@ -2,20 +2,14 @@
 
 from __future__ import annotations
 
-import json
-import logging
-
 from rubric.autograders import Autograder
+from rubric.autograders.schemas import RubricAsJudgeOutput
 from rubric.types import (
     Criterion,
-    DefaultFallbackVerdicts,
     EvaluationReport,
-    GenerateFn,
     LengthPenalty,
+    RubricAsJudgeGenerateFn,
 )
-from rubric.utils import default_generate_fn, parse_json_to_dict
-
-logger = logging.getLogger(__name__)
 
 DEFAULT_SYSTEM_PROMPT = """You are evaluating a response for a given query against a list of \
 criteria.
@@ -86,25 +80,26 @@ Respond ONLY with valid JSON in this exact format:
 
 
 class RubricAsJudgeGrader(Autograder):
-    """Concrete autograder that requests a single holistic score from the model."""
+    """Concrete autograder that requests a single holistic score from the model.
+
+    Args:
+        generate_fn: Typed generate function that returns validated RubricAsJudgeOutput.
+            Users handle parsing, validation, and retries in their implementation.
+        system_prompt: System prompt for holistic evaluation.
+        length_penalty: Optional length penalty configuration.
+        normalize: If True (default), normalize scores to 0-1.
+    """
 
     def __init__(
         self,
-        generate_fn: GenerateFn = default_generate_fn,
+        generate_fn: RubricAsJudgeGenerateFn,
         *,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         length_penalty: LengthPenalty | None = None,
         normalize: bool = True,
-        max_retries: int = 2,
-        default_fallback_verdicts: DefaultFallbackVerdicts | None = None,
     ):
-        super().__init__(
-            generate_fn=generate_fn,
-            length_penalty=length_penalty,
-            normalize=normalize,
-            max_retries=max_retries,
-            default_fallback_verdicts=default_fallback_verdicts,
-        )
+        super().__init__(length_penalty=length_penalty, normalize=normalize)
+        self.generate_fn = generate_fn
         self.system_prompt = system_prompt
 
     async def judge(self, to_grade: str, rubric: list[Criterion], query: str | None = None) -> dict:
@@ -150,36 +145,13 @@ using the logic from the system prompt, and return a single holistic score from 
 
 Return your evaluation as JSON only."""
 
-        error = None
-        last_error: Exception | None = None
-        llm_score = 0.0
-        response = ""
-
-        for attempt in range(self.max_retries + 1):
-            try:
-                response = await self.generate(self.system_prompt, user_prompt)
-                result = parse_json_to_dict(response)
-                overall_score_raw = result.get("overall_score", 0)
-                llm_score = float(overall_score_raw)
-                last_error = None
-                break
-            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
-                last_error = e
-                continue
-
-        if last_error is not None:
-            error = f"Failed to parse judge response after {self.max_retries + 1} attempts: {last_error}"
-            response_preview = response[:200] if response else "N/A"
-            logger.warning(f"{error}. Response: {response_preview}...")
-            if self.default_fallback_verdicts is not None:
-                # Silently fall back to llm_score=0 when fallbacks are configured
-                error = None
+        # Call generate_fn - user handles validation and retries
+        result: RubricAsJudgeOutput = await self.generate_fn(self.system_prompt, user_prompt)
 
         return {
-            "llm_score": llm_score,
+            "llm_score": result.overall_score,
             "total_positive_weight": total_positive_weight,
             "total_negative_weight": total_negative_weight,
-            "error": error,
         }
 
     async def aggregate(self, judge_results: dict, *, normalize: bool = True) -> EvaluationReport:
@@ -191,7 +163,6 @@ Return your evaluation as JSON only."""
         llm_score = judge_results["llm_score"]
         total_positive_weight = judge_results["total_positive_weight"]
         total_negative_weight = judge_results["total_negative_weight"]
-        error = judge_results.get("error")
         llm_raw_score = llm_score
 
         # Compute synthetic raw_score with weighted-sum semantics
@@ -218,5 +189,4 @@ Return your evaluation as JSON only."""
             raw_score=raw_score,
             llm_raw_score=llm_raw_score,
             report=None,
-            error=error,
         )

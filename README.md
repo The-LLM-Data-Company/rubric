@@ -28,24 +28,43 @@ uv add rubric
 
 ## Usage
 
-1. **Set up environment variables:**
+### Quick Start with Default Generate Functions
+
+For quick testing, use the built-in Gemini generate functions:
 
 ```bash
-export OPENAI_API_KEY=your_api_key_here
-# Or any other model API key used in your `generate_fn`
+export GEMINI_API_KEY=your_api_key_here
 ```
 
-2. **Run the example below**
+```python
+from rubric import Rubric, default_per_criterion_generate_fn
+from rubric.autograders import PerCriterionGrader
+
+rubric = Rubric.from_dict([
+    {"weight": 10.0, "requirement": "Response mentions Paris"},
+    {"weight": 5.0, "requirement": "Response is concise"}
+])
+
+grader = PerCriterionGrader(generate_fn=default_per_criterion_generate_fn)
+result = await rubric.grade("Paris is the capital of France.", autograder=grader)
+print(f"Score: {result.score}")
+```
+
+See `examples/basic_usage.py` for more examples with all three autograder types.
+
+### Custom Generate Function with OpenAI
+
+For production use, implement your own `generate_fn` with structured outputs:
 
 ```python
 import asyncio
 import os
 from openai import AsyncOpenAI
-from rubric import Rubric
+from rubric import Rubric, PerCriterionOutput
 from rubric.autograders import PerCriterionGrader
 
 # Declare custom generate function with any model and inference provider
-async def generate_with_openai(system_prompt: str, user_prompt: str) -> str:
+async def generate_with_openai(system_prompt: str, user_prompt: str) -> PerCriterionOutput:
     client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     response = await client.chat.completions.create(
         model="gpt-5-mini",
@@ -53,10 +72,15 @@ async def generate_with_openai(system_prompt: str, user_prompt: str) -> str:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
+        response_format={"type": "json_schema", "json_schema": {
+            "name": "criterion_output",
+            "schema": PerCriterionOutput.model_json_schema()
+        }},
         max_tokens=400,
         temperature=0.0,
     )
-    return response.choices[0].message.content or ""
+    content = response.choices[0].message.content or "{}"
+    return PerCriterionOutput.model_validate_json(content)
 
 async def main():
     # Build rubric
@@ -173,9 +197,9 @@ Each autograder uses a specialized system prompt optimized for its evaluation ap
 
 You can view the complete default prompts in the source files:
 
-- [`per_criterion_grader.py`](src/rubric/autograders/per_criterion_grader.py#L10-L55)
-- [`per_criterion_one_shot_grader.py`](src/rubric/autograders/per_criterion_one_shot_grader.py#L11-L31)
-- [`rubric_as_judge_grader.py`](src/rubric/autograders/rubric_as_judge_grader.py#L11-L22)
+- [`per_criterion_grader.py`](src/rubric/autograders/per_criterion_grader.py#L15)
+- [`per_criterion_one_shot_grader.py`](src/rubric/autograders/per_criterion_one_shot_grader.py#L15)
+- [`rubric_as_judge_grader.py`](src/rubric/autograders/rubric_as_judge_grader.py#L14)
 
 **Customizing System Prompts:** You can override the default system prompt by passing a `system_prompt` parameter to any autograder:
 
@@ -208,54 +232,67 @@ The structure depends on what you pass to `rubric.grade()`. Customize your syste
 You can customize grading at multiple levels:
 
 **1. Custom `generate_fn` (most common)**
-Pass any function that takes `(system_prompt, user_prompt)` and returns a string. Use any LLM provider (OpenAI, Anthropic, local models, etc.):
+Pass any typed function that returns a Pydantic model. Use any LLM provider (OpenAI, Anthropic, local models, etc.):
 
 ```python
+from rubric import PerCriterionOutput
+
+async def your_custom_function(system_prompt: str, user_prompt: str) -> PerCriterionOutput:
+    # Your LLM call here with structured outputs
+    ...
+    return PerCriterionOutput(criterion_status="MET", explanation="...")
+
 grader = PerCriterionGrader(generate_fn=your_custom_function)
 ```
 
-**2. Override specific methods**
-Subclass any autograder and override:
+Each autograder requires a specific return type:
+- `PerCriterionGrader` → `PerCriterionOutput`
+- `PerCriterionOneShotGrader` → `OneShotOutput`
+- `RubricAsJudgeGrader` → `RubricAsJudgeOutput`
 
-- `judge()` - Orchestrates LLM calls to evaluate criteria and parse responses into structured results
-- `generate()` - Wraps your `generate_fn` to customize how prompts are sent to the LLM
-- `aggregate()` - Transforms individual criterion results into a final score and optional report
+**2. Create custom autograder**
+Subclass `Autograder` and implement the abstract methods:
 
-**3. Full control**
-Override the entire `grade()` method for complete end-to-end control over the grading process.
+- `judge()` - Evaluates the submission and returns raw results
+- `aggregate()` - Transforms judge results into an `EvaluationReport`
 
-## Error Handling
+The `generate_fn` pattern is optional - you can make LLM calls directly, use multiple functions, or skip LLMs entirely.
 
-### Retry and Fallback Behavior
-
-By default, autograders retry up to 2 times (3 total attempts) when parsing fails. If all retries fail, a `ValueError` is raised.
+**3. Override system prompts**
+Customize the default prompts for built-in autograders:
 
 ```python
-# Default: raise ValueError on parse failure
 grader = PerCriterionGrader(
     generate_fn=your_function,
-    max_retries=2,  # Retry up to 2 times (3 total attempts)
-)
-
-# Configure fallback verdicts per criterion type
-grader = PerCriterionGrader(
-    generate_fn=your_function,
-    default_fallback_verdicts={"positive": "UNMET", "negative": "UNMET"},
-)
-
-# Conservative fallbacks (worst-case assumptions)
-grader = PerCriterionGrader(
-    generate_fn=your_function,
-    default_fallback_verdicts={"positive": "UNMET", "negative": "MET"},
+    system_prompt="Your custom system prompt here"
 )
 ```
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `max_retries` | 2 | Number of retry attempts on parse failure |
-| `default_fallback_verdicts` | None | Dict with fallback verdicts per criterion type. If None, raise on failure. |
+## Error Handling
 
-**Note:** Parse failures indicate an issue with your LLM integration. We recommend using **structured outputs** in your `generate_fn` when possible to avoid parse failures.
+In v2.0.0, validation happens at generation time via Pydantic models. Your `generate_fn` is responsible for:
+
+1. **Structured outputs** - Use your LLM provider's structured output features (JSON schema, function calling, etc.) to ensure valid responses
+2. **Retry logic** - Implement retries within your `generate_fn` if needed
+3. **Validation** - Return a validated Pydantic model (`PerCriterionOutput`, `OneShotOutput`, or `RubricAsJudgeOutput`)
+
+If your `generate_fn` returns invalid data, Pydantic will raise a `ValidationError`.
+
+**Example with retries:**
+
+```python
+async def generate_with_retries(system_prompt: str, user_prompt: str, max_retries: int = 3) -> PerCriterionOutput:
+    for attempt in range(max_retries):
+        try:
+            response = await your_llm_call(system_prompt, user_prompt)
+            return PerCriterionOutput.model_validate_json(response)
+        except ValidationError as e:
+            if attempt == max_retries - 1:
+                raise
+            continue  # Retry on validation error
+```
+
+**Best practice:** Use structured outputs (JSON schema constrained decoding) in your LLM client to avoid validation errors entirely.
 
 ## Score Fields
 
@@ -267,7 +304,6 @@ The `EvaluationReport` returned by `rubric.grade()` contains several score field
 | `raw_score` | Weighted sum before normalization. **Consistent semantics across all graders.** |
 | `llm_raw_score` | Original LLM output before conversion. For `RubricAsJudgeGrader`, this is the 0-100 score. |
 | `report` | Per-criterion breakdown (None for `RubricAsJudgeGrader`) |
-| `error` | Error message if grading failed after all retries (None on success) |
 
 **Cross-Grader Consistency:** `raw_score` uses weighted-sum semantics across all graders, enabling direct comparison:
 

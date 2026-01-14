@@ -3,56 +3,33 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from rubric.types import (
-    Criterion,
-    DefaultFallbackVerdicts,
-    EvaluationReport,
-    GenerateFn,
-    LengthPenalty,
-    ToGradeInput,
-)
+from rubric.types import Criterion, EvaluationReport, LengthPenalty, ToGradeInput
 from rubric.utils import compute_length_penalty, normalize_to_grade_input
 
 
 class Autograder(ABC):
     """Base class describing the LLM-backed grading workflow.
 
-    Subclasses inherit a ready-to-use `generate()` helper that delegates to the caller-supplied
-    `generate_fn`. This keeps the LLM client choice outside of the core grading logic while making
-    the dependency visible in constructors.
+    Each concrete autograder accepts a typed generate_fn that returns validated Pydantic
+    models specific to that grader's output format. Users implement their generate functions
+    with parsing, validation, and retry logic tailored to their LLM client.
 
     Args:
-        generate_fn: Async function for LLM generation with (system_prompt, user_prompt) signature.
         length_penalty: Optional configuration for penalizing overly long outputs.
             When provided, a penalty based on the token/word count is subtracted from the
             final score.
         normalize: If True (default), scores are normalized to 0-1. If False, raw weighted
             sums are returned, which is useful for RL training scenarios.
-        max_retries: Number of retry attempts when parsing fails (default 2, meaning 3 total attempts).
-        default_fallback_verdicts: If provided, use these verdicts on parse failure instead of raising.
-            Dict with optional 'positive' and 'negative' keys specifying fallback verdicts.
-            If None (default), raise ValueError on parse failure.
     """
 
     def __init__(
         self,
-        generate_fn: GenerateFn | None = None,
+        *,
         length_penalty: LengthPenalty | None = None,
         normalize: bool = True,
-        max_retries: int = 2,
-        default_fallback_verdicts: DefaultFallbackVerdicts | None = None,
     ):
-        self.generate_fn: GenerateFn | None = generate_fn
         self.length_penalty: LengthPenalty | None = length_penalty
         self.normalize: bool = normalize
-        self.max_retries: int = max_retries
-        self.default_fallback_verdicts: DefaultFallbackVerdicts | None = default_fallback_verdicts
-
-    async def generate(self, system_prompt: str, user_prompt: str, **kwargs: Any) -> str:
-        """Invoke the injected LLM callable with explicit system/user prompts."""
-        if self.generate_fn is None:
-            raise ValueError("generate_fn must be provided or override the generate method")
-        return await self.generate_fn(system_prompt, user_prompt, **kwargs)
 
     @abstractmethod
     async def judge(self, to_grade: str, rubric: list[Criterion], query: str | None = None) -> Any:

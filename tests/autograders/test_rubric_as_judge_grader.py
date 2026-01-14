@@ -1,8 +1,6 @@
-import json
-
 import pytest
 
-from rubric import Criterion, Rubric
+from rubric import Criterion, Rubric, RubricAsJudgeOutput
 from rubric.autograders import RubricAsJudgeGrader
 
 
@@ -19,66 +17,6 @@ async def test_rubric_as_judge_grader_class_integration(
 
 
 @pytest.mark.asyncio
-async def test_rubric_as_judge_grader_handles_invalid_json(sample_rubric):
-    async def bad_generate(system_prompt: str, user_prompt: str) -> str:
-        return "not-json"
-
-    grader = RubricAsJudgeGrader(generate_fn=bad_generate)
-
-    judge_result = await grader.judge(
-        to_grade="Example submission",
-        rubric=sample_rubric.rubric,
-    )
-    assert judge_result["llm_score"] == 0.0
-    assert judge_result["error"] is not None
-    assert "Failed to parse" in judge_result["error"]
-
-    report = await grader.aggregate(judge_result)
-    assert report.score == 0.0
-    assert report.report is None
-    assert report.error is not None
-    assert "Failed to parse" in report.error
-
-
-@pytest.mark.asyncio
-async def test_rubric_as_judge_grader_error_field_none_on_success(sample_rubric):
-    """Test that error field is None when parsing succeeds."""
-    async def good_generate(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps({"overall_score": 85})
-
-    grader = RubricAsJudgeGrader(generate_fn=good_generate)
-    result = await sample_rubric.grade("Test output", autograder=grader)
-
-    assert result.error is None
-    assert result.score == pytest.approx(0.85)
-
-
-@pytest.mark.asyncio
-async def test_rubric_as_judge_grader_error_field_with_various_parse_failures():
-    """Test error field is set for various parse failure scenarios."""
-    rubric = Rubric([Criterion(weight=1.0, requirement="Is helpful")])
-
-    # Test non-JSON response
-    async def non_json_generate(system_prompt: str, user_prompt: str) -> str:
-        return "I'd rate this about 85 out of 100."
-
-    grader = RubricAsJudgeGrader(generate_fn=non_json_generate)
-    result = await rubric.grade("Test", autograder=grader)
-    assert result.error is not None
-    assert result.score == 0.0
-
-    # Test JSON without overall_score (should not error, defaults to 0)
-    async def missing_score_generate(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps({"some_other_field": 85})
-
-    grader2 = RubricAsJudgeGrader(generate_fn=missing_score_generate)
-    result2 = await rubric.grade("Test", autograder=grader2)
-    # Missing field uses default of 0, not an error
-    assert result2.error is None
-    assert result2.score == 0.0
-
-
-@pytest.mark.asyncio
 async def test_rubric_as_judge_grader_raw_score_semantics():
     """Test that raw_score uses weighted-sum semantics consistent with other graders."""
     rubric = Rubric([
@@ -86,8 +24,8 @@ async def test_rubric_as_judge_grader_raw_score_semantics():
         Criterion(weight=5.0, requirement="Is helpful"),
     ])
 
-    async def generate_85(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps({"overall_score": 85})
+    async def generate_85(system_prompt: str, user_prompt: str) -> RubricAsJudgeOutput:
+        return RubricAsJudgeOutput(overall_score=85, explanation="Good quality")
 
     grader = RubricAsJudgeGrader(generate_fn=generate_85)
     result = await rubric.grade("Test output", autograder=grader)
@@ -107,8 +45,8 @@ async def test_rubric_as_judge_grader_llm_raw_score_preserved():
         Criterion(weight=20.0, requirement="Is complete"),
     ])
 
-    async def generate_70(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps({"overall_score": 70})
+    async def generate_70(system_prompt: str, user_prompt: str) -> RubricAsJudgeOutput:
+        return RubricAsJudgeOutput(overall_score=70, explanation="Decent")
 
     grader = RubricAsJudgeGrader(generate_fn=generate_70)
     result = await rubric.grade("Test output", autograder=grader)
@@ -127,8 +65,8 @@ async def test_rubric_as_judge_grader_normalize_false():
         Criterion(weight=5.0, requirement="Is helpful"),
     ])
 
-    async def generate_80(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps({"overall_score": 80})
+    async def generate_80(system_prompt: str, user_prompt: str) -> RubricAsJudgeOutput:
+        return RubricAsJudgeOutput(overall_score=80, explanation="Good")
 
     grader = RubricAsJudgeGrader(generate_fn=generate_80, normalize=False)
     result = await rubric.grade("Test output", autograder=grader)
@@ -149,8 +87,8 @@ async def test_rubric_as_judge_grader_all_negative_rubric():
     ])
 
     # LLM score of 100 means no errors detected
-    async def generate_100(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps({"overall_score": 100})
+    async def generate_100(system_prompt: str, user_prompt: str) -> RubricAsJudgeOutput:
+        return RubricAsJudgeOutput(overall_score=100, explanation="Perfect")
 
     grader = RubricAsJudgeGrader(generate_fn=generate_100)
     result = await rubric.grade("Perfect output", autograder=grader)
@@ -162,8 +100,8 @@ async def test_rubric_as_judge_grader_all_negative_rubric():
     assert result.score == pytest.approx(1.0)
 
     # LLM score of 0 means all errors detected
-    async def generate_0(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps({"overall_score": 0})
+    async def generate_0(system_prompt: str, user_prompt: str) -> RubricAsJudgeOutput:
+        return RubricAsJudgeOutput(overall_score=0, explanation="Many errors")
 
     grader_0 = RubricAsJudgeGrader(generate_fn=generate_0)
     result_0 = await rubric.grade("Bad output", autograder=grader_0)
@@ -182,8 +120,8 @@ async def test_rubric_as_judge_grader_mixed_rubric():
         Criterion(weight=-5.0, requirement="Contains errors"),
     ])
 
-    async def generate_90(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps({"overall_score": 90})
+    async def generate_90(system_prompt: str, user_prompt: str) -> RubricAsJudgeOutput:
+        return RubricAsJudgeOutput(overall_score=90, explanation="Excellent")
 
     grader = RubricAsJudgeGrader(generate_fn=generate_90)
     result = await rubric.grade("Test output", autograder=grader)

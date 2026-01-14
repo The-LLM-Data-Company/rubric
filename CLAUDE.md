@@ -8,11 +8,12 @@ A Python library for evaluating text outputs against weighted criteria using LLM
 src/rubric/
 ├── __init__.py              # Public exports
 ├── rubric.py                # Core Rubric class
-├── types.py                 # Type definitions (Criterion, LengthPenalty, etc.)
-├── utils.py                 # Utility functions (JSON parsing, length penalty)
+├── types.py                 # Type definitions (Criterion, LengthPenalty, protocols)
+├── utils.py                 # Utility functions (length penalty, default generators)
 └── autograders/
     ├── __init__.py          # Autograder exports
     ├── base.py              # Abstract Autograder base class
+    ├── schemas.py           # Pydantic output schemas
     ├── per_criterion_grader.py         # Parallel per-criterion evaluation
     ├── per_criterion_one_shot_grader.py # Single-call all-criteria evaluation
     └── rubric_as_judge_grader.py       # Holistic scoring
@@ -44,7 +45,6 @@ class EvaluationReport(BaseModel):
     raw_score: float | None                   # Always weighted-sum semantics (consistent across all graders)
     llm_raw_score: float | None               # Original LLM output before conversion
     report: list[CriterionReport] | None      # Per-criterion details (if available)
-    error: str | None                         # Error message if grading failed (e.g., parse error)
 ```
 
 **Score Field Semantics:**
@@ -54,84 +54,208 @@ class EvaluationReport(BaseModel):
   - `RubricAsJudgeGrader`: The 0-100 holistic score from the LLM (useful for debugging)
 
 **Error Handling:**
-- `error`: Set when grading fails (e.g., JSON parse error). When set, `score` defaults to 0.0.
-- Training pipelines should filter out results where `error is not None` to avoid corrupted data.
-- A warning is logged when parse errors occur, including a preview of the unparseable response.
+- Validation happens at generation time via Pydantic models
+- If your `generate_fn` returns invalid data, Pydantic will raise a `ValidationError`
+- Users control retry logic in their `generate_fn` based on their LLM client's capabilities
 
-**Retry and Fallback Behavior:**
-- By default, autograders retry up to 2 times (3 total attempts) when parsing fails.
-- If all retries fail, a `ValueError` is raised (loud failure).
-- Set `default_fallback_verdicts` to configure fallback verdicts per criterion type instead of raising.
-- Configure `max_retries` to adjust the number of retry attempts.
-- We recommend using structured outputs in your `generate_fn` when possible to avoid parse failures.
+## Pydantic Output Schemas
 
-### `DefaultFallbackVerdicts`
-Configuration for fallback verdicts when parsing fails:
+All autograders require typed `generate_fn` implementations that return validated Pydantic models. These schemas ensure strict type safety and enable constrained decoding.
+
+### `PerCriterionOutput`
+Used by `PerCriterionGrader` for single-criterion evaluation:
+
 ```python
-class DefaultFallbackVerdicts(TypedDict, total=False):
-    positive: Literal["MET", "UNMET"]  # Fallback for positive criteria (default: "UNMET")
-    negative: Literal["MET", "UNMET"]  # Fallback for negative criteria (default: "UNMET")
+from rubric import PerCriterionOutput
+
+class PerCriterionOutput(BaseModel):
+    criterion_status: Literal["MET", "UNMET"]
+    explanation: str
 ```
 
-Example:
-```python
-# Conservative fallbacks (worst-case assumptions)
-grader = PerCriterionGrader(default_fallback_verdicts={"positive": "UNMET", "negative": "MET"})
+### `OneShotOutput`
+Used by `PerCriterionOneShotGrader` for batch evaluation:
 
-# All UNMET fallbacks
-grader = PerCriterionGrader(default_fallback_verdicts={"positive": "UNMET", "negative": "UNMET"})
+```python
+from rubric import OneShotOutput, CriterionEvaluation
+
+class CriterionEvaluation(BaseModel):
+    criterion_number: int  # 1-based index
+    criterion_status: Literal["MET", "UNMET"]
+    explanation: str
+
+class OneShotOutput(BaseModel):
+    criteria_evaluations: list[CriterionEvaluation]
+```
+
+### `RubricAsJudgeOutput`
+Used by `RubricAsJudgeGrader` for holistic scoring:
+
+```python
+from rubric import RubricAsJudgeOutput
+
+class RubricAsJudgeOutput(BaseModel):
+    overall_score: float  # 0-100 scale
+    explanation: str      # Brief explanation of the score
+```
+
+### Accessing Schemas for Constrained Decoding
+
+All schemas expose `.model_json_schema()` for constrained decoding:
+
+```python
+from rubric import PerCriterionOutput
+
+# Get JSON schema for your LLM client
+schema = PerCriterionOutput.model_json_schema()
+
+# Example with OpenAI structured outputs
+response = await openai_client.chat.completions.create(
+    model="gpt-4",
+    messages=[...],
+    response_format={"type": "json_schema", "json_schema": schema}
+)
+
+# Parse response into validated Pydantic model
+output = PerCriterionOutput.model_validate_json(response.choices[0].message.content)
 ```
 
 ### `LengthPenalty`
 Configuration for penalizing overly long outputs (see Length Penalty section below).
 
-### `GenerateFn`
-Protocol for LLM generation functions:
+## Typed GenerateFn Protocols
+
+Each autograder requires a specific typed `generate_fn` protocol that returns a validated Pydantic model:
+
+### `PerCriterionGenerateFn`
+For `PerCriterionGrader`:
 ```python
-async def __call__(self, system_prompt: str, user_prompt: str, **kwargs: Any) -> str
+from rubric import PerCriterionGenerateFn, PerCriterionOutput
+
+async def my_generate_fn(
+    system_prompt: str,
+    user_prompt: str,
+    **kwargs
+) -> PerCriterionOutput:
+    # Your LLM call here
+    return PerCriterionOutput(
+        criterion_status="MET",
+        explanation="The criterion is satisfied."
+    )
+```
+
+### `OneShotGenerateFn`
+For `PerCriterionOneShotGrader`:
+```python
+from rubric import OneShotGenerateFn, OneShotOutput, CriterionEvaluation
+
+async def my_generate_fn(
+    system_prompt: str,
+    user_prompt: str,
+    **kwargs
+) -> OneShotOutput:
+    # Your LLM call here
+    return OneShotOutput(
+        criteria_evaluations=[
+            CriterionEvaluation(
+                criterion_number=1,
+                criterion_status="MET",
+                explanation="First criterion satisfied"
+            ),
+            # ... more evaluations
+        ]
+    )
+```
+
+### `RubricAsJudgeGenerateFn`
+For `RubricAsJudgeGrader`:
+```python
+from rubric import RubricAsJudgeGenerateFn, RubricAsJudgeOutput
+
+async def my_generate_fn(
+    system_prompt: str,
+    user_prompt: str,
+    **kwargs
+) -> RubricAsJudgeOutput:
+    # Your LLM call here
+    return RubricAsJudgeOutput(overall_score=85.0, explanation="Good quality overall")
 ```
 
 ## Autograders
 
 All autograders inherit from `Autograder` and implement the `judge()` and `aggregate()` methods.
 
-### Base Constructor
+### Common Constructor Parameters
 
-All autograders accept these common parameters:
+All autograders accept these parameters:
 ```python
 def __init__(
     self,
-    generate_fn: GenerateFn = default_generate_fn,  # LLM generation function
+    generate_fn: TypedGenerateFn,                   # Typed LLM generation function (required)
     *,
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,     # Customizable system prompt
     length_penalty: LengthPenalty | None = None,    # Optional length penalty config
     normalize: bool = True,                          # If False, return raw weighted sums
-    max_retries: int = 2,                            # Retry attempts on parse failure (3 total)
-    default_fallback_verdicts: DefaultFallbackVerdicts | None = None,  # Fallback verdicts on failure
 ):
 ```
 
 ### `PerCriterionGrader` (Default)
 Evaluates each criterion in **parallel LLM calls**. Best for accuracy when you have many criteria.
 
+```python
+from rubric import PerCriterionGenerateFn, PerCriterionOutput
+from rubric.autograders import PerCriterionGrader
+
+async def my_generate_fn(system_prompt: str, user_prompt: str) -> PerCriterionOutput:
+    # Your LLM call here
+    ...
+
+grader = PerCriterionGrader(generate_fn=my_generate_fn)
+```
+
 - **judge()**: Makes one LLM call per criterion concurrently via `asyncio.gather()`
 - **aggregate()**: Computes weighted score from individual verdicts
 - Returns detailed `CriterionReport` for each criterion
+- Requires: `PerCriterionGenerateFn` returning `PerCriterionOutput`
 
 ### `PerCriterionOneShotGrader`
 Evaluates **all criteria in a single LLM call**. Best for cost efficiency with fewer criteria.
 
+```python
+from rubric import OneShotGenerateFn, OneShotOutput
+from rubric.autograders import PerCriterionOneShotGrader
+
+async def my_generate_fn(system_prompt: str, user_prompt: str) -> OneShotOutput:
+    # Your LLM call here
+    ...
+
+grader = PerCriterionOneShotGrader(generate_fn=my_generate_fn)
+```
+
 - **judge()**: Single LLM call with all criteria in the prompt
 - **aggregate()**: Same weighted scoring as PerCriterionGrader
 - Returns detailed `CriterionReport` for each criterion
+- Requires: `OneShotGenerateFn` returning `OneShotOutput`
 
 ### `RubricAsJudgeGrader`
 Asks the LLM for a **single holistic score** (0-100). Fastest but no per-criterion breakdown.
+
+```python
+from rubric import RubricAsJudgeGenerateFn, RubricAsJudgeOutput
+from rubric.autograders import RubricAsJudgeGrader
+
+async def my_generate_fn(system_prompt: str, user_prompt: str) -> RubricAsJudgeOutput:
+    # Your LLM call here
+    ...
+
+grader = RubricAsJudgeGrader(generate_fn=my_generate_fn)
+```
 
 - **judge()**: Single LLM call that returns overall score (0-100)
 - **aggregate()**: Converts to weighted-sum `raw_score` for consistency, normalizes to 0-1 for `score`
 - Returns `report=None` (no per-criterion details)
 - `llm_raw_score` preserves the original 0-100 LLM score for debugging
+- Requires: `RubricAsJudgeGenerateFn` returning `RubricAsJudgeOutput`
 
 **raw_score Conversion**: The LLM's 0-100 score is converted to weighted-sum semantics:
 ```python
@@ -485,47 +609,106 @@ async def compute_rewards_batch(
 
 ## Creating Custom Autograders
 
-Subclass `Autograder` and implement `judge()` and `aggregate()`:
+Subclass `Autograder` and implement `judge()` and `aggregate()`. The only requirements are:
+1. Implement the abstract methods `judge()` and `aggregate()`
+2. Call `super().__init__(length_penalty=..., normalize=...)`
+
+How you implement grading logic is up to you - you can use a `generate_fn` parameter (like the built-in autograders), make LLM calls directly, use multiple functions, or even do rule-based grading without LLMs.
+
+**Example with optional `generate_fn` pattern:**
 
 ```python
+from typing import Protocol
 from rubric.autograders import Autograder
-from rubric.types import Criterion, EvaluationReport, GenerateFn, LengthPenalty
+from rubric.types import Criterion, EvaluationReport, LengthPenalty
+from pydantic import BaseModel
 
+# 1. Define your Pydantic output schema (if using LLMs)
+class MyCustomOutput(BaseModel):
+    score: float
+    reasoning: str
+
+# 2. Optionally define a typed protocol for generate_fn
+class MyCustomGenerateFn(Protocol):
+    async def __call__(
+        self, system_prompt: str, user_prompt: str, **kwargs
+    ) -> MyCustomOutput: ...
+
+# 3. Implement your autograder
 class MyAutograder(Autograder):
     def __init__(
         self,
-        generate_fn: GenerateFn,
+        generate_fn: MyCustomGenerateFn,  # Optional - just an implementation choice
         *,
+        system_prompt: str = "Grade this response.",
         length_penalty: LengthPenalty | None = None,
+        normalize: bool = True,
     ):
-        super().__init__(generate_fn=generate_fn, length_penalty=length_penalty)
-    
-    async def judge(self, to_grade: str, rubric: list[Criterion], query: str | None = None) -> Any:
-        # Your judging logic here
-        pass
-    
-    async def aggregate(self, judge_results: Any) -> EvaluationReport:
+        super().__init__(length_penalty=length_penalty, normalize=normalize)
+        self.generate_fn = generate_fn
+        self.system_prompt = system_prompt
+
+    async def judge(
+        self, to_grade: str, rubric: list[Criterion], query: str | None = None
+    ) -> MyCustomOutput:
+        # Build prompt with rubric and response
+        user_prompt = f"Response: {to_grade}\nCriteria: {rubric}"
+
+        # Call LLM with your chosen approach
+        result = await self.generate_fn(self.system_prompt, user_prompt)
+        return result
+
+    async def aggregate(self, judge_results: MyCustomOutput) -> EvaluationReport:
         # Convert judge results to EvaluationReport
-        pass
+        return EvaluationReport(
+            score=judge_results.score,
+            raw_score=judge_results.score,
+            llm_raw_score=None,
+            report=None,
+        )
 ```
 
-The base `grade()` method handles length penalty application automatically using `self.length_penalty`.
+**Key points:**
+- The `generate_fn` pattern used by built-in autograders is optional - it's just one way to structure your code
+- You could make LLM calls directly in `judge()`, use multiple functions, or skip LLMs entirely
+- Call the base constructor with common parameters (`length_penalty`, `normalize`)
+- Store any autograder-specific parameters as instance attributes
+- The base `grade()` method handles length penalty application automatically
 
 ## Public Exports
 
+### Core Types
 ```python
 from rubric import (
+    # Core classes
     Rubric,
     Criterion,
     CriterionReport,
-    DefaultFallbackVerdicts,
     EvaluationReport,
     LengthPenalty,
     CountFn,
+
+    # Pydantic output schemas
+    PerCriterionOutput,
+    OneShotOutput,
+    RubricAsJudgeOutput,
+    CriterionEvaluation,
+
+    # Typed protocols
+    PerCriterionGenerateFn,
+    OneShotGenerateFn,
+    RubricAsJudgeGenerateFn,
+
+    # Default generate functions
+    default_per_criterion_generate_fn,
+    default_oneshot_generate_fn,
+    default_rubric_as_judge_generate_fn,
+
     # Thinking/output support
     PenaltyType,
     ThinkingOutputDict,
     ToGradeInput,
+
     # Utility functions
     compute_length_penalty,
     normalize_to_grade_input,
@@ -533,4 +716,16 @@ from rubric import (
     word_count,
 )
 ```
+
+### Autograders
+```python
+from rubric.autograders import (
+    Autograder,              # Base class
+    PerCriterionGrader,      # Parallel per-criterion grading
+    PerCriterionOneShotGrader,  # Single-call all-criteria grading
+    RubricAsJudgeGrader,     # Holistic scoring
+)
+```
+
+
 

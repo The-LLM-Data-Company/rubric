@@ -37,17 +37,21 @@ export GEMINI_API_KEY=your_api_key_here
 ```
 
 ```python
+import asyncio
 from rubric import Rubric, default_per_criterion_generate_fn
 from rubric.autograders import PerCriterionGrader
 
-rubric = Rubric.from_dict([
-    {"weight": 10.0, "requirement": "Response mentions Paris"},
-    {"weight": 5.0, "requirement": "Response is concise"}
-])
+async def main():
+    rubric = Rubric.from_dict([
+        {"weight": 10.0, "requirement": "Response mentions Paris"},
+        {"weight": 5.0, "requirement": "Response is concise"}
+    ])
 
-grader = PerCriterionGrader(generate_fn=default_per_criterion_generate_fn)
-result = await rubric.grade("Paris is the capital of France.", autograder=grader)
-print(f"Score: {result.score}")
+    grader = PerCriterionGrader(generate_fn=default_per_criterion_generate_fn)
+    result = await rubric.grade("Paris is the capital of France.", autograder=grader)
+    print(f"Score: {result.score}")
+
+asyncio.run(main())
 ```
 
 See `examples/basic_usage.py` for more examples with all three autograder types.
@@ -281,6 +285,9 @@ If your `generate_fn` returns invalid data, Pydantic will raise a `ValidationErr
 **Example with retries:**
 
 ```python
+from pydantic import ValidationError
+from rubric import PerCriterionOutput
+
 async def generate_with_retries(system_prompt: str, user_prompt: str, max_retries: int = 3) -> PerCriterionOutput:
     for attempt in range(max_retries):
         try:

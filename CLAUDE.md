@@ -66,7 +66,8 @@ All autograders require typed `generate_fn` implementations that return validate
 Used by `PerCriterionGrader` for single-criterion evaluation:
 
 ```python
-from rubric import PerCriterionOutput
+from typing import Literal
+from pydantic import BaseModel
 
 class PerCriterionOutput(BaseModel):
     criterion_status: Literal["MET", "UNMET"]
@@ -77,7 +78,8 @@ class PerCriterionOutput(BaseModel):
 Used by `PerCriterionOneShotGrader` for batch evaluation:
 
 ```python
-from rubric import OneShotOutput, CriterionEvaluation
+from typing import Literal
+from pydantic import BaseModel, Field
 
 class CriterionEvaluation(BaseModel):
     criterion_number: int  # 1-based index
@@ -85,14 +87,14 @@ class CriterionEvaluation(BaseModel):
     explanation: str
 
 class OneShotOutput(BaseModel):
-    criteria_evaluations: list[CriterionEvaluation]
+    criteria_evaluations: list[CriterionEvaluation] = Field(min_length=1)
 ```
 
 ### `RubricAsJudgeOutput`
 Used by `RubricAsJudgeGrader` for holistic scoring:
 
 ```python
-from rubric import RubricAsJudgeOutput
+from pydantic import BaseModel
 
 class RubricAsJudgeOutput(BaseModel):
     overall_score: float  # 0-100 scale
@@ -113,7 +115,10 @@ schema = PerCriterionOutput.model_json_schema()
 response = await openai_client.chat.completions.create(
     model="gpt-4",
     messages=[...],
-    response_format={"type": "json_schema", "json_schema": schema}
+    response_format={"type": "json_schema", "json_schema": {
+        "name": "criterion_output",
+        "schema": schema
+    }}
 )
 
 # Parse response into validated Pydantic model
@@ -284,7 +289,7 @@ score = max(0.0, min(1.0, weighted_sum / total_positive_weight))
 For RL training scenarios, normalized 0-1 scores can make optimization artificially difficult. Pass `normalize=False` to get raw weighted sums:
 
 ```python
-grader = PerCriterionGrader(normalize=False)
+grader = PerCriterionGrader(generate_fn=your_generate_fn, normalize=False)
 result = await rubric.grade(response, autograder=grader)
 # result.score = raw weighted sum (can be negative if many negative criteria are MET)
 # result.raw_score = same as score when normalize=False
@@ -301,7 +306,7 @@ With normalized scores (default):
 
 With raw scores:
 ```python
-grader = PerCriterionGrader(normalize=False)
+grader = PerCriterionGrader(generate_fn=your_generate_fn, normalize=False)
 # Same scenario:
 # score = 15 (raw weighted sum)
 # raw_score = 15
@@ -312,8 +317,8 @@ The `raw_score` field is **always populated** regardless of the `normalize` sett
 **Cross-Grader Consistency**: `raw_score` now uses consistent weighted-sum semantics across all graders:
 ```python
 # Same rubric, different graders - raw_score is now comparable!
-result1 = await rubric.grade(text, autograder=PerCriterionGrader(normalize=False))
-result2 = await rubric.grade(text, autograder=RubricAsJudgeGrader(normalize=False))
+result1 = await rubric.grade(text, autograder=PerCriterionGrader(generate_fn=your_generate_fn, normalize=False))
+result2 = await rubric.grade(text, autograder=RubricAsJudgeGrader(generate_fn=your_generate_fn, normalize=False))
 
 # Both use weighted-sum semantics for raw_score
 # result1.raw_score and result2.raw_score are on the same scale
@@ -394,11 +399,12 @@ rubric = Rubric.from_file("rubric.yaml")
 result = await rubric.grade(response)
 
 # With length penalty - configure on the autograder
-grader = PerCriterionGrader(length_penalty=LengthPenalty())
+grader = PerCriterionGrader(generate_fn=your_generate_fn, length_penalty=LengthPenalty())
 result = await rubric.grade(response, autograder=grader)
 
 # With custom tokenizer
 grader = PerCriterionGrader(
+    generate_fn=your_generate_fn,
     length_penalty=LengthPenalty(
         free_budget=8000,
         max_cap=10000,
@@ -494,6 +500,7 @@ from rubric.autograders import PerCriterionGrader
 tokenizer = AutoTokenizer.from_pretrained("your-model")
 
 grader = PerCriterionGrader(
+    generate_fn=your_llm_fn,
     normalize=False,  # Raw scores for training
     length_penalty=LengthPenalty(
         free_budget=8000,
@@ -515,6 +522,7 @@ result = await rubric.grade(
 **2. Penalize Excessive Reasoning**
 ```python
 grader = PerCriterionGrader(
+    generate_fn=your_generate_fn,
     length_penalty=LengthPenalty(
         free_budget=5000,
         penalty_type="THINKING_ONLY",  # Only penalize long thinking

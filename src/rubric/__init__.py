@@ -18,11 +18,6 @@ from rubric.types import (
     ThinkingOutputDict,
     ToGradeInput,
 )
-from rubric.autograders.schemas import (
-    OneShotOutput,
-    PerCriterionOutput,
-    RubricAsJudgeOutput,
-)
 from rubric.utils import (
     compute_length_penalty,
     default_oneshot_generate_fn,

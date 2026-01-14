@@ -274,7 +274,7 @@ grader = PerCriterionGrader(
 
 ## Error Handling
 
-In v2.0.0, validation happens at generation time via Pydantic models. Your `generate_fn` is responsible for:
+Since v2.0.0, validation happens at generation time via Pydantic models. Your `generate_fn` is responsible for:
 
 1. **Structured outputs** - Use your LLM provider's structured output features (JSON schema, function calling, etc.) to ensure valid responses
 2. **Retry logic** - Implement retries within your `generate_fn` if needed

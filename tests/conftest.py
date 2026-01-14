@@ -1,14 +1,22 @@
-import json
 import re
 from collections.abc import Awaitable, Callable
 
 import pytest
 from dotenv import load_dotenv
 
-from rubric import Criterion, Rubric
+from rubric import (
+    Criterion,
+    OneShotOutput,
+    PerCriterionOutput,
+    Rubric,
+    RubricAsJudgeOutput,
+)
+from rubric.autograders.schemas import CriterionEvaluation
 
 CriterionList = list[Criterion]
-GenerateFn = Callable[[str, str], Awaitable[str]]
+PerCriterionGenerateFn = Callable[[str, str], Awaitable[PerCriterionOutput]]
+OneShotGenerateFn = Callable[[str, str], Awaitable[OneShotOutput]]
+RubricAsJudgeGenerateFn = Callable[[str, str], Awaitable[RubricAsJudgeOutput]]
 
 load_dotenv()
 
@@ -53,7 +61,7 @@ def _extract_field(pattern: re.Pattern[str], text: str) -> str:
 
 
 @pytest.fixture
-def per_criterion_generate_fn() -> GenerateFn:
+def per_criterion_generate_fn() -> PerCriterionGenerateFn:
     criterion_pattern = re.compile(r"<criterion>(.*?)</criterion>", re.DOTALL)
     type_pattern = re.compile(r"<criterion_type>(.*?)</criterion_type>", re.DOTALL)
     positive_requirements_met = {
@@ -65,7 +73,7 @@ def per_criterion_generate_fn() -> GenerateFn:
         "Output contains profanity or offensive language": False,  # Error NOT present
     }
 
-    async def _generate(system_prompt: str, user_prompt: str) -> str:
+    async def _generate(system_prompt: str, user_prompt: str) -> PerCriterionOutput:
         criterion_text = _extract_field(criterion_pattern, user_prompt)
         criterion_type = _extract_field(type_pattern, user_prompt).lower()
 
@@ -78,11 +86,9 @@ def per_criterion_generate_fn() -> GenerateFn:
                 if error_present
                 else "Error not present in the output."
             )
-            return json.dumps(
-                {
-                    "criterion_status": "MET" if error_present else "UNMET",
-                    "explanation": explanation,
-                }
+            return PerCriterionOutput(
+                criterion_status="MET" if error_present else "UNMET",
+                explanation=explanation,
             )
 
         criteria_met = criterion_text in positive_requirements_met
@@ -91,19 +97,17 @@ def per_criterion_generate_fn() -> GenerateFn:
             if criteria_met
             else "Requirement not satisfied by the submission."
         )
-        return json.dumps(
-            {
-                "criterion_status": "MET" if criteria_met else "UNMET",
-                "explanation": explanation,
-            }
+        return PerCriterionOutput(
+            criterion_status="MET" if criteria_met else "UNMET",
+            explanation=explanation,
         )
 
     return _generate
 
 
 @pytest.fixture
-def one_shot_generate_fn(sample_criteria: CriterionList) -> GenerateFn:
-    async def _generate(system_prompt: str, user_prompt: str) -> str:
+def one_shot_generate_fn(sample_criteria: CriterionList) -> OneShotGenerateFn:
+    async def _generate(system_prompt: str, user_prompt: str) -> OneShotOutput:
         evaluations = []
         for index, criterion in enumerate(sample_criteria, start=1):
             if criterion.weight < 0:
@@ -114,21 +118,21 @@ def one_shot_generate_fn(sample_criteria: CriterionList) -> GenerateFn:
                 criterion_status = "MET"
                 explanation = "Requirement satisfied by the submission."
             evaluations.append(
-                {
-                    "criterion_number": index,
-                    "criterion_status": criterion_status,
-                    "explanation": explanation,
-                }
+                CriterionEvaluation(
+                    criterion_number=index,
+                    criterion_status=criterion_status,
+                    explanation=explanation,
+                )
             )
 
-        return json.dumps({"criteria_evaluations": evaluations})
+        return OneShotOutput(criteria_evaluations=evaluations)
 
     return _generate
 
 
 @pytest.fixture
-def rubric_as_judge_generate_fn() -> GenerateFn:
-    async def _generate(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps({"overall_score": 135.0})
+def rubric_as_judge_generate_fn() -> RubricAsJudgeGenerateFn:
+    async def _generate(system_prompt: str, user_prompt: str) -> RubricAsJudgeOutput:
+        return RubricAsJudgeOutput(overall_score=135.0, explanation="Perfect score")
 
     return _generate

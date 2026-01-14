@@ -1,18 +1,16 @@
 """Per Criterion grader evaluates each criterion separately in parallel LLM calls."""
 
 import asyncio
-import json
 
 from rubric.autograders import Autograder
+from rubric.autograders.schemas import PerCriterionOutput
 from rubric.types import (
     Criterion,
     CriterionReport,
-    DefaultFallbackVerdicts,
     EvaluationReport,
-    GenerateFn,
     LengthPenalty,
+    PerCriterionGenerateFn,
 )
-from rubric.utils import default_generate_fn, parse_json_to_dict
 
 DEFAULT_SYSTEM_PROMPT = """You are evaluating a response for a given query against a single \
 criterion.
@@ -124,25 +122,26 @@ Return only raw JSON starting with {, no back-ticks, no 'json' prefix."""
 
 
 class PerCriterionGrader(Autograder):
-    """Concrete autograder that evaluates each criterion independently."""
+    """Concrete autograder that evaluates each criterion independently.
+
+    Args:
+        generate_fn: Typed generate function that returns validated PerCriterionOutput.
+            Users handle parsing, validation, and retries in their implementation.
+        system_prompt: System prompt for criterion evaluation.
+        length_penalty: Optional length penalty configuration.
+        normalize: If True (default), normalize scores to 0-1.
+    """
 
     def __init__(
         self,
-        generate_fn: GenerateFn = default_generate_fn,
+        generate_fn: PerCriterionGenerateFn,
         *,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         length_penalty: LengthPenalty | None = None,
         normalize: bool = True,
-        max_retries: int = 2,
-        default_fallback_verdicts: DefaultFallbackVerdicts | None = None,
     ):
-        super().__init__(
-            generate_fn=generate_fn,
-            length_penalty=length_penalty,
-            normalize=normalize,
-            max_retries=max_retries,
-            default_fallback_verdicts=default_fallback_verdicts,
-        )
+        super().__init__(length_penalty=length_penalty, normalize=normalize)
+        self.generate_fn = generate_fn
         self.system_prompt = system_prompt
 
     async def _judge_single_criterion(
@@ -164,41 +163,17 @@ class PerCriterionGrader(Autograder):
 {to_grade}
 </response>"""
 
-        last_error: Exception | None = None
-        for attempt in range(self.max_retries + 1):
-            try:
-                response = await self.generate(
-                    system_prompt=self.system_prompt, user_prompt=user_prompt
-                )
+        # Call generate_fn - user handles validation and retries
+        result: PerCriterionOutput = await self.generate_fn(
+            system_prompt=self.system_prompt, user_prompt=user_prompt
+        )
 
-                result = parse_json_to_dict(response)
-
-                explanation = result.get("explanation", "No explanation provided")
-
-                criterion_status = result.get("criterion_status", "UNMET").upper()
-                verdict = "MET" if criterion_status == "MET" else "UNMET"
-
-                return CriterionReport(
-                    requirement=criterion.requirement,
-                    verdict=verdict,
-                    reason=explanation,
-                    weight=criterion.weight,
-                )
-
-            except (json.JSONDecodeError, KeyError) as e:
-                last_error = e
-                continue
-
-        error_msg = f"Failed to parse judge response after {self.max_retries + 1} attempts: {last_error}"
-        if self.default_fallback_verdicts is not None:
-            fallback_verdict = self.default_fallback_verdicts.get(criterion_type, "UNMET")
-            return CriterionReport(
-                requirement=criterion.requirement,
-                verdict=fallback_verdict,
-                reason=error_msg,
-                weight=criterion.weight,
-            )
-        raise ValueError(error_msg)
+        return CriterionReport(
+            requirement=criterion.requirement,
+            verdict=result.criterion_status,
+            reason=result.explanation,
+            weight=criterion.weight,
+        )
 
     async def judge(
         self, to_grade: str, rubric: list[Criterion], query: str | None = None
@@ -211,24 +186,6 @@ class PerCriterionGrader(Autograder):
     async def aggregate(
         self, judge_results: list[CriterionReport], *, normalize: bool = True
     ) -> EvaluationReport:
-        parse_errors = [
-            r for r in judge_results if r.reason.startswith("Failed to parse judge response")
-        ]
-        if parse_errors:
-            error_details = "; ".join(
-                f"criterion '{r.requirement[:50]}...': {r.reason}"
-                if len(r.requirement) > 50
-                else f"criterion '{r.requirement}': {r.reason}"
-                for r in parse_errors
-            )
-            return EvaluationReport(
-                score=0.0,
-                raw_score=0.0,
-                llm_raw_score=0.0,
-                report=judge_results,
-                error=f"Parse errors occurred: {error_details}",
-            )
-
         total_positive_weight = sum(max(0.0, report.weight) for report in judge_results)
         total_negative_weight = sum(
             abs(report.weight) for report in judge_results if report.weight < 0

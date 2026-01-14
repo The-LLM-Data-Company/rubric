@@ -1,9 +1,6 @@
-import json
-import warnings
-
 import pytest
 
-from rubric import Criterion, Rubric
+from rubric import Criterion, CriterionEvaluation, OneShotOutput, Rubric
 from rubric.autograders import PerCriterionOneShotGrader
 
 
@@ -27,48 +24,19 @@ async def test_per_criterion_one_shot_grader_class_integration(
 
 
 @pytest.mark.asyncio
-async def test_per_criterion_one_shot_grader_handles_invalid_json(sample_rubric):
-    async def bad_generate(system_prompt: str, user_prompt: str) -> str:
-        return "not-json"
-
-    grader = PerCriterionOneShotGrader(
-        generate_fn=bad_generate,
-        default_fallback_verdicts={"positive": "UNMET", "negative": "UNMET"},
-        max_retries=0,
-    )
-
-    judge_results = await grader.judge(
-        to_grade="Example submission",
-        rubric=sample_rubric.rubric,
-    )
-    report = await grader.aggregate(judge_results)
-
-    assert report.score == 0.0
-    assert report.report is not None
-
-    for criterion_report in report.report:
-        assert criterion_report.verdict == "UNMET"
-        assert "Failed to parse judge response" in criterion_report.reason
-
-
-@pytest.mark.asyncio
 async def test_per_criterion_one_shot_grader_with_negative_criterion_unmet(sample_rubric):
-    async def generate_with_issue(system_prompt: str, user_prompt: str) -> str:
-        import json
-
-        return json.dumps(
-            {
-                "criteria_evaluations": [
-                    {"criterion_number": 1, "criterion_status": "MET", "explanation": "Test"},
-                    {"criterion_number": 2, "criterion_status": "MET", "explanation": "Test"},
-                    {"criterion_number": 3, "criterion_status": "MET", "explanation": "Test"},
-                    {
-                        "criterion_number": 4,
-                        "criterion_status": "UNMET",
-                        "explanation": "Error not present",
-                    },
-                ]
-            }
+    async def generate_with_issue(system_prompt: str, user_prompt: str) -> OneShotOutput:
+        return OneShotOutput(
+            criteria_evaluations=[
+                CriterionEvaluation(criterion_number=1, criterion_status="MET", explanation="Test"),
+                CriterionEvaluation(criterion_number=2, criterion_status="MET", explanation="Test"),
+                CriterionEvaluation(criterion_number=3, criterion_status="MET", explanation="Test"),
+                CriterionEvaluation(
+                    criterion_number=4,
+                    criterion_status="UNMET",
+                    explanation="Error not present",
+                ),
+            ]
         )
 
     grader = PerCriterionOneShotGrader(generate_fn=generate_with_issue)
@@ -92,27 +60,25 @@ async def test_all_negative_criteria_all_unmet_returns_perfect_score():
         ]
     )
 
-    async def generate_no_errors(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps(
-            {
-                "criteria_evaluations": [
-                    {
-                        "criterion_number": 1,
-                        "criterion_status": "UNMET",
-                        "explanation": "No errors",
-                    },
-                    {
-                        "criterion_number": 2,
-                        "criterion_status": "UNMET",
-                        "explanation": "No profanity",
-                    },
-                    {
-                        "criterion_number": 3,
-                        "criterion_status": "UNMET",
-                        "explanation": "No harmful content",
-                    },
-                ]
-            }
+    async def generate_no_errors(system_prompt: str, user_prompt: str) -> OneShotOutput:
+        return OneShotOutput(
+            criteria_evaluations=[
+                CriterionEvaluation(
+                    criterion_number=1,
+                    criterion_status="UNMET",
+                    explanation="No errors",
+                ),
+                CriterionEvaluation(
+                    criterion_number=2,
+                    criterion_status="UNMET",
+                    explanation="No profanity",
+                ),
+                CriterionEvaluation(
+                    criterion_number=3,
+                    criterion_status="UNMET",
+                    explanation="No harmful content",
+                ),
+            ]
         )
 
     grader = PerCriterionOneShotGrader(generate_fn=generate_no_errors)
@@ -133,18 +99,16 @@ async def test_all_negative_criteria_all_met_returns_zero_score():
         ]
     )
 
-    async def generate_all_errors(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps(
-            {
-                "criteria_evaluations": [
-                    {"criterion_number": 1, "criterion_status": "MET", "explanation": "Has errors"},
-                    {
-                        "criterion_number": 2,
-                        "criterion_status": "MET",
-                        "explanation": "Has profanity",
-                    },
-                ]
-            }
+    async def generate_all_errors(system_prompt: str, user_prompt: str) -> OneShotOutput:
+        return OneShotOutput(
+            criteria_evaluations=[
+                CriterionEvaluation(criterion_number=1, criterion_status="MET", explanation="Has errors"),
+                CriterionEvaluation(
+                    criterion_number=2,
+                    criterion_status="MET",
+                    explanation="Has profanity",
+                ),
+            ]
         )
 
     grader = PerCriterionOneShotGrader(generate_fn=generate_all_errors)
@@ -155,118 +119,3 @@ async def test_all_negative_criteria_all_met_returns_zero_score():
     assert all(r.verdict == "MET" for r in result.report)
 
 
-@pytest.mark.asyncio
-async def test_string_criterion_numbers_are_matched():
-    """String criterion numbers should be coerced to int for matching."""
-    rubric = Rubric(
-        [
-            Criterion(weight=1.0, requirement="Is accurate"),
-            Criterion(weight=1.0, requirement="Is helpful"),
-        ]
-    )
-
-    async def generate_with_strings(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps(
-            {
-                "criteria_evaluations": [
-                    {"criterion_number": "1", "criterion_status": "MET", "explanation": "Good"},
-                    {"criterion_number": "2", "criterion_status": "MET", "explanation": "Good"},
-                ]
-            }
-        )
-
-    grader = PerCriterionOneShotGrader(generate_fn=generate_with_strings)
-    result = await rubric.grade("Test", autograder=grader)
-
-    assert result.score == pytest.approx(1.0)
-    assert all(r.verdict == "MET" for r in result.report)
-
-
-@pytest.mark.asyncio
-async def test_float_criterion_numbers_are_matched():
-    """Float criterion numbers should be coerced to int for matching."""
-    rubric = Rubric(
-        [
-            Criterion(weight=1.0, requirement="Is accurate"),
-            Criterion(weight=1.0, requirement="Is helpful"),
-        ]
-    )
-
-    async def generate_with_floats(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps(
-            {
-                "criteria_evaluations": [
-                    {"criterion_number": 1.0, "criterion_status": "MET", "explanation": "Good"},
-                    {"criterion_number": 2.0, "criterion_status": "MET", "explanation": "Good"},
-                ]
-            }
-        )
-
-    grader = PerCriterionOneShotGrader(generate_fn=generate_with_floats)
-    result = await rubric.grade("Test", autograder=grader)
-
-    assert result.score == pytest.approx(1.0)
-    assert all(r.verdict == "MET" for r in result.report)
-
-
-@pytest.mark.asyncio
-async def test_alternative_key_names_matched_with_warning():
-    """Alternative key names like 'id' should match with a warning."""
-    rubric = Rubric(
-        [
-            Criterion(weight=1.0, requirement="Is accurate"),
-            Criterion(weight=1.0, requirement="Is helpful"),
-        ]
-    )
-
-    async def generate_with_alt_keys(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps(
-            {
-                "criteria_evaluations": [
-                    {"id": 1, "criterion_status": "MET", "explanation": "Good"},
-                    {"id": 2, "criterion_status": "MET", "explanation": "Good"},
-                ]
-            }
-        )
-
-    grader = PerCriterionOneShotGrader(generate_fn=generate_with_alt_keys)
-
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        result = await rubric.grade("Test", autograder=grader)
-
-        # Should have warnings about alternative key usage
-        assert len(w) >= 1
-        assert any("'id' instead of 'criterion_number'" in str(warning.message) for warning in w)
-
-    assert result.score == pytest.approx(1.0)
-    assert all(r.verdict == "MET" for r in result.report)
-
-
-@pytest.mark.asyncio
-async def test_mixed_criterion_number_types():
-    """Mixed types (int, string, float) should all be matched correctly."""
-    rubric = Rubric(
-        [
-            Criterion(weight=1.0, requirement="First"),
-            Criterion(weight=1.0, requirement="Second"),
-            Criterion(weight=1.0, requirement="Third"),
-        ]
-    )
-
-    async def generate_mixed(system_prompt: str, user_prompt: str) -> str:
-        return json.dumps(
-            {
-                "criteria_evaluations": [
-                    {"criterion_number": 1, "criterion_status": "MET", "explanation": "Int"},
-                    {"criterion_number": "2", "criterion_status": "MET", "explanation": "String"},
-                    {"criterion_number": 3.0, "criterion_status": "MET", "explanation": "Float"},
-                ]
-            }
-        )
-
-    grader = PerCriterionOneShotGrader(generate_fn=generate_mixed)
-    result = await rubric.grade("Test", autograder=grader)
-
-    assert result.score == pytest.approx(1.0)
-    assert all(r.verdict == "MET" for r in result.report)

@@ -1,4 +1,3 @@
-import json
 import os
 import re
 import warnings
@@ -6,6 +5,11 @@ import warnings
 from google import genai
 from google.genai import types
 
+from rubric.autograders.schemas import (
+    OneShotOutput,
+    PerCriterionOutput,
+    RubricAsJudgeOutput,
+)
 from rubric.types import LengthPenalty, ThinkingOutputDict, ToGradeInput
 
 
@@ -159,81 +163,15 @@ def compute_length_penalty(text: str | ThinkingOutputDict, config: LengthPenalty
     return config.penalty_at_cap * (frac**config.exponent)
 
 
-def _find_matching_brace(text: str, start: int) -> int:
-    """Find the index of the closing brace matching the opening brace at start.
+async def default_per_criterion_generate_fn(
+    system_prompt: str, user_prompt: str, **kwargs
+) -> PerCriterionOutput:
+    """Default generate function for PerCriterionGrader using Gemini API.
 
-    Properly handles nested braces and braces inside JSON strings.
-
-    Args:
-        text: The text to search in.
-        start: Index of the opening brace '{'.
-
-    Returns:
-        Index of the matching closing brace, or -1 if not found.
+    Calls Gemini with JSON schema for structured output and validates the response.
+    Users should implement their own generate functions with proper retry logic
+    and error handling tailored to their LLM client.
     """
-    depth = 0
-    in_string = False
-    escape = False
-
-    for i in range(start, len(text)):
-        char = text[i]
-
-        if escape:
-            escape = False
-            continue
-
-        if char == "\\":
-            escape = True
-            continue
-
-        if char == '"' and not escape:
-            in_string = not in_string
-            continue
-
-        if in_string:
-            continue
-
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return i
-
-    return -1
-
-
-def parse_json_to_dict(json_string: str) -> dict:
-    """Parse JSON string with various formats (including markdown fences).
-
-    Handles common LLM output patterns:
-    - Markdown code fences: ```json {...} ```
-    - Leading text before JSON: "Here is the result: {...}"
-    - Trailing text after JSON: "{...} I hope this helps!"
-    """
-    cleaned = re.sub(r"^```json\s*|\s*```$", "", json_string.strip(), flags=re.IGNORECASE)
-
-    cleaned = re.sub(r"^\s*json\s*", "", cleaned, flags=re.IGNORECASE)
-
-    # Find opening brace
-    start = cleaned.find("{")
-    if start == -1:
-        # No JSON object found, let json.loads raise appropriate error
-        return json.loads(cleaned)
-
-    # Find matching closing brace
-    end = _find_matching_brace(cleaned, start)
-    if end != -1:
-        cleaned = cleaned[start : end + 1]
-    else:
-        # No matching brace found, try from start and let json.loads handle it
-        cleaned = cleaned[start:]
-
-    return json.loads(cleaned)
-
-
-async def default_generate_fn(system_prompt: str, user_prompt: str) -> str:
-    """Generate a response from the Gemini API."""
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
     response = await client.aio.models.generate_content(
         model="gemini-3-pro-preview",
@@ -241,6 +179,54 @@ async def default_generate_fn(system_prompt: str, user_prompt: str) -> str:
         config=types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=0,
+            response_mime_type="application/json",
+            response_schema=PerCriterionOutput,
         ),
     )
-    return response.text or ""
+    return response.parsed
+
+
+async def default_oneshot_generate_fn(
+    system_prompt: str, user_prompt: str, **kwargs
+) -> OneShotOutput:
+    """Default generate function for PerCriterionOneShotGrader using Gemini API.
+
+    Calls Gemini with JSON schema for structured output and validates the response.
+    Users should implement their own generate functions with proper retry logic
+    and error handling tailored to their LLM client.
+    """
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    response = await client.aio.models.generate_content(
+        model="gemini-3-pro-preview",
+        contents=user_prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=0,
+            response_mime_type="application/json",
+            response_schema=OneShotOutput,
+        ),
+    )
+    return response.parsed
+
+
+async def default_rubric_as_judge_generate_fn(
+    system_prompt: str, user_prompt: str, **kwargs
+) -> RubricAsJudgeOutput:
+    """Default generate function for RubricAsJudgeGrader using Gemini API.
+
+    Calls Gemini with JSON schema for structured output and validates the response.
+    Users should implement their own generate functions with proper retry logic
+    and error handling tailored to their LLM client.
+    """
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    response = await client.aio.models.generate_content(
+        model="gemini-3-pro-preview",
+        contents=user_prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=0,
+            response_mime_type="application/json",
+            response_schema=RubricAsJudgeOutput,
+        ),
+    )
+    return response.parsed

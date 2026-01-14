@@ -5,6 +5,12 @@ from typing import Any, Literal, Protocol, TypedDict
 
 from pydantic import BaseModel, ConfigDict
 
+from rubric.autograders.schemas import (
+    OneShotOutput,
+    PerCriterionOutput,
+    RubricAsJudgeOutput,
+)
+
 CountFn = Callable[[str], int]
 
 
@@ -27,28 +33,6 @@ Accepts either a plain string or a dict with thinking/output keys.
 
 PenaltyType = Literal["ALL", "OUTPUT_ONLY", "THINKING_ONLY"]
 """Type for penalty_type field: specifies which sections to count for length penalty."""
-
-
-class DefaultFallbackVerdicts(TypedDict, total=False):
-    """Configuration for fallback verdicts when parsing fails.
-
-    If provided to an autograder, parsing failures will use these verdicts instead of raising.
-    If None is passed, parsing failures will raise a ValueError.
-
-    Attributes:
-        positive: Fallback verdict for positive criteria (weight >= 0). Defaults to "UNMET".
-        negative: Fallback verdict for negative criteria (weight < 0). Defaults to "UNMET".
-
-    Example:
-        >>> # Conservative fallbacks (worst-case assumptions)
-        >>> fallbacks = {"positive": "UNMET", "negative": "MET"}
-        >>>
-        >>> # All UNMET fallbacks
-        >>> fallbacks = {"positive": "UNMET", "negative": "UNMET"}
-    """
-
-    positive: Literal["MET", "UNMET"]
-    negative: Literal["MET", "UNMET"]
 
 
 class LengthPenalty(BaseModel):
@@ -146,31 +130,45 @@ class EvaluationReport(BaseModel):
             For RubricAsJudgeGrader: the 0-100 holistic score from the LLM.
             Useful for debugging and understanding the LLM's actual output.
         report: Optional per-criterion breakdown (None for RubricAsJudgeGrader).
-        error: Optional error message if grading failed (e.g., JSON parse error).
-            When set, score defaults to 0.0 and other fields may be None.
-            Training pipelines should filter out results where error is not None.
     """
 
     score: float
     raw_score: float | None = None
     llm_raw_score: float | None = None
     report: list[CriterionReport] | None = None
-    error: str | None = None
 
 
-class GenerateFn(Protocol):
-    """Protocol defining the signature for generate functions."""
+class PerCriterionGenerateFn(Protocol):
+    """Protocol for generate functions used by PerCriterionGrader.
 
-    async def __call__(self, system_prompt: str, user_prompt: str, **kwargs: Any) -> str: ...
-
-
-class AutograderFn(Protocol):
-    """Protocol defining the signature for autograder functions."""
+    Must return a validated PerCriterionOutput with criterion_status and explanation.
+    Users should handle parsing, validation, and retries within their implementation.
+    """
 
     async def __call__(
-        self,
-        to_grade: str,
-        rubric: list[Criterion],
-        generate_fn: GenerateFn,
-        **kwargs: Any,
-    ) -> EvaluationReport: ...
+        self, system_prompt: str, user_prompt: str, **kwargs: Any
+    ) -> PerCriterionOutput: ...
+
+
+class OneShotGenerateFn(Protocol):
+    """Protocol for generate functions used by PerCriterionOneShotGrader.
+
+    Must return a validated OneShotOutput with criteria_evaluations list.
+    Users should handle parsing, validation, and retries within their implementation.
+    """
+
+    async def __call__(
+        self, system_prompt: str, user_prompt: str, **kwargs: Any
+    ) -> OneShotOutput: ...
+
+
+class RubricAsJudgeGenerateFn(Protocol):
+    """Protocol for generate functions used by RubricAsJudgeGrader.
+
+    Must return a validated RubricAsJudgeOutput with overall_score (0-100).
+    Users should handle parsing, validation, and retries within their implementation.
+    """
+
+    async def __call__(
+        self, system_prompt: str, user_prompt: str, **kwargs: Any
+    ) -> RubricAsJudgeOutput: ...

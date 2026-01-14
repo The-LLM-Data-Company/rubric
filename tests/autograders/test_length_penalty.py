@@ -1,6 +1,6 @@
 import pytest
 
-from rubric import Criterion, LengthPenalty, Rubric
+from rubric import Criterion, LengthPenalty, PerCriterionOutput, Rubric
 from rubric.autograders import PerCriterionGrader
 from rubric.utils import compute_length_penalty, word_count
 
@@ -16,12 +16,10 @@ def simple_rubric() -> Rubric:
 
 @pytest.fixture
 def all_met_generate_fn():
-    import json
-
-    async def _generate(system_prompt: str, user_prompt: str) -> str:
+    async def _generate(system_prompt: str, user_prompt: str) -> PerCriterionOutput:
         if "negative" in user_prompt.lower():
-            return json.dumps({"criterion_status": "UNMET", "explanation": "No profanity found"})
-        return json.dumps({"criterion_status": "MET", "explanation": "Requirement satisfied"})
+            return PerCriterionOutput(criterion_status="UNMET", explanation="No profanity found")
+        return PerCriterionOutput(criterion_status="MET", explanation="Requirement satisfied")
 
     return _generate
 
@@ -209,12 +207,10 @@ class TestLengthPenaltyWithNegativeCriteria:
             Criterion(weight=-5.0, requirement="Contains spam"),
         ])
 
-        import json
-
-        async def generate_with_spam(system_prompt: str, user_prompt: str) -> str:
+        async def generate_with_spam(system_prompt: str, user_prompt: str) -> PerCriterionOutput:
             if "negative" in user_prompt.lower():
-                return json.dumps({"criterion_status": "MET", "explanation": "Spam detected"})
-            return json.dumps({"criterion_status": "MET", "explanation": "Greeting found"})
+                return PerCriterionOutput(criterion_status="MET", explanation="Spam detected")
+            return PerCriterionOutput(criterion_status="MET", explanation="Greeting found")
 
         grader = PerCriterionGrader(
             generate_fn=generate_with_spam,
@@ -232,12 +228,10 @@ class TestLengthPenaltyWithNegativeCriteria:
             Criterion(weight=-5.0, requirement="Contains spam"),
         ])
 
-        import json
-
-        async def generate_with_spam(system_prompt: str, user_prompt: str) -> str:
+        async def generate_with_spam(system_prompt: str, user_prompt: str) -> PerCriterionOutput:
             if "negative" in user_prompt.lower():
-                return json.dumps({"criterion_status": "MET", "explanation": "Spam detected"})
-            return json.dumps({"criterion_status": "MET", "explanation": "Greeting found"})
+                return PerCriterionOutput(criterion_status="MET", explanation="Spam detected")
+            return PerCriterionOutput(criterion_status="MET", explanation="Greeting found")
 
         grader = PerCriterionGrader(
             generate_fn=generate_with_spam,

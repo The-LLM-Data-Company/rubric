@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from rubric.autograders import Autograder, PerCriterionGrader
 from rubric.types import Criterion, EvaluationReport, ToGradeInput
-from rubric.utils import default_generate_fn
+from rubric.utils import default_per_criterion_generate_fn
 
 
 class Rubric:
@@ -41,7 +41,7 @@ class Rubric:
             **kwargs: Additional arguments (unused).
         """
         if autograder is None:
-            autograder = PerCriterionGrader(generate_fn=default_generate_fn)
+            autograder = PerCriterionGrader(generate_fn=default_per_criterion_generate_fn)
         return await autograder.grade(to_grade=to_grade, rubric=self.rubric, query=query)
 
     @staticmethod

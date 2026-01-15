@@ -126,7 +126,7 @@ Evaluates each criterion in parallel inference calls.
 
 For each criterion $i$: MET contributes $w_i$, UNMET contributes 0.
 
-**Raw score** (always computed):
+**Raw score**:
 
 $$
 \text{raw\_score} = \sum_{i=1}^{n} \mathbb{1}[\text{verdict}_i = \text{MET}] \cdot w_i
@@ -144,7 +144,7 @@ $$
 \text{score} = \text{raw\_score}
 $$
 
-Pass `normalize=False` to the autograder constructor for raw weighted sums (useful for RL training).
+Pass `normalize=False` to the autograder constructor for raw weighted sums.
 
 **All-Negative Criteria Rubrics:**
 
@@ -395,60 +395,6 @@ rubric = Rubric.from_file('rubric.yaml')
   requirement: "Explicitly uses Shapley attribution for decomposition"
 - weight: -15.0
   requirement: "Uses total deliveries instead of cash-only deliveries"
-```
-
-## Length Penalty
-
-Penalizes verbose outputs. Configured on the autograder, applied after scoring.
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `free_budget` | 6000 | No penalty below this count |
-| `max_cap` | 8000 | Max penalty at/above this count |
-| `penalty_at_cap` | 0.5 | Max penalty to subtract |
-| `exponent` | 1.6 | Curve steepness |
-| `count_fn` | `word_count` | Custom counting function |
-| `penalty_type` | `"ALL"` | `"ALL"`, `"OUTPUT_ONLY"`, or `"THINKING_ONLY"` |
-
-**Formula:**
-- `count <= free_budget`: penalty = 0
-- `count >= max_cap`: penalty = `penalty_at_cap`
-- Otherwise: `penalty = penalty_at_cap * ((count - free_budget) / (max_cap - free_budget)) ** exponent`
-
-```python
-grader = PerCriterionGrader(
-    generate_fn=your_function,
-    length_penalty=LengthPenalty(free_budget=8000, max_cap=10000, penalty_at_cap=0.5)
-)
-
-# Custom tokenizer
-from transformers import AutoTokenizer
-tokenizer = AutoTokenizer.from_pretrained("gpt2")
-penalty = LengthPenalty(count_fn=lambda t: len(tokenizer.encode(t)))
-```
-
-## Thinking/Output Support
-
-For models with separate reasoning (e.g., Claude extended thinking).
-
-**Input Formats:**
-
-```python
-# Dict format
-await rubric.grade({"thinking": "...", "output": "..."})
-
-# String with markers (auto-parsed)
-await rubric.grade("<thinking>...</thinking><output>...</output>")
-
-# Plain string (backwards compatible)
-await rubric.grade("response text")
-```
-
-**Selective Penalty:**
-
-```python
-# Only penalize output length, not thinking
-penalty = LengthPenalty(penalty_type="OUTPUT_ONLY")
 ```
 
 ## Requirements

@@ -129,19 +129,19 @@ For each criterion $i$: MET contributes $w_i$, UNMET contributes 0.
 **Raw score**:
 
 $$
-\text{raw\_score} = \sum_{i=1}^{n} \mathbb{1}[\text{verdict}_i = \text{MET}] \cdot w_i
+\texttt{raw\\_score} = \sum_{i=1}^{n} \mathbb{1}[\text{verdict}_i = \text{MET}] \cdot w_i
 $$
 
 **Normalized score** (`normalize=True`, the default):
 
 $$
-\text{score} = \max\left(0, \min\left(1, \frac{\text{raw\_score}}{\sum_{i=1}^{n} \max(0, w_i)}\right)\right)
+\texttt{score} = \max\left(0, \min\left(1, \frac{\texttt{raw\\_score}}{\sum_{i=1}^{n} \max(0, w_i)}\right)\right)
 $$
 
 **Unnormalized score** (`normalize=False`):
 
 $$
-\text{score} = \text{raw\_score}
+\texttt{score} = \texttt{raw\\_score}
 $$
 
 Pass `normalize=False` to the autograder constructor for raw weighted sums.
@@ -155,19 +155,19 @@ For rubrics with only negative criteria (e.g., error detection):
 **Normalized score** (default):
 
 $$
-\text{score} = \max\left(0, \min\left(1, 1 + \frac{\text{raw\_score}}{\sum_{i=1}^{n} |w_i|}\right)\right)
+\texttt{score} = \max\left(0, \min\left(1, 1 + \frac{\texttt{raw\\_score}}{\sum_{i=1}^{n} |w_i|}\right)\right)
 $$
 
-- Score = 1.0 when all errors avoided (all UNMET, raw\_score = 0)
-- Score = 0.0 when all errors present (all MET, raw\_score = -total)
+- Score = 1.0 when all errors avoided (all UNMET, `raw_score` = 0)
+- Score = 0.0 when all errors present (all MET, `raw_score` = -total)
 
 ### PerCriterionOneShotGrader
 
 Makes 1 inference call for all criteria (vs. $n$ parallel calls). Same scoring as PerCriterionGrader:
 
-**Raw score**: $\text{raw\_score} = \sum_{i=1}^{n} \mathbb{1}[\text{verdict}_i = \text{MET}] \cdot w_i$
+**Raw score**: $\texttt{raw\\_score} = \sum_{i=1}^{n} \mathbb{1}[\text{verdict}_i = \text{MET}] \cdot w_i$
 
-**Normalized score** (default): $\text{score} = \max\left(0, \min\left(1, \frac{\text{raw\_score}}{\sum_{i=1}^{n} \max(0, w_i)}\right)\right)$
+**Normalized score** (default): $\texttt{score} = \max\left(0, \min\left(1, \frac{\texttt{raw\\_score}}{\sum_{i=1}^{n} \max(0, w_i)}\right)\right)$
 
 Pass `normalize=False` for raw weighted sums.
 
@@ -180,12 +180,12 @@ Holistic evaluation where the model returns a single 0-100 score.
 **Raw score** (converted to weighted-sum for cross-grader consistency):
 
 $$
-\text{raw\_score} = \frac{\text{llm\_raw\_score}}{100} \times \sum_{i=1}^{n} \max(0, w_i)
+\texttt{raw\\_score} = \frac{\texttt{llm\\_raw\\_score}}{100} \times \sum_{i=1}^{n} \max(0, w_i)
 $$
 
-**Normalized score** (`normalize=True`, default): $\text{score} = \max(0, \min(1, \text{llm\_raw\_score} / 100))$
+**Normalized score** (`normalize=True`, default): $\texttt{score} = \max(0, \min(1, \texttt{llm\\_raw\\_score} / 100))$
 
-**Unnormalized score** (`normalize=False`): $\text{score} = \text{raw\_score}$
+**Unnormalized score** (`normalize=False`): $\texttt{score} = \texttt{raw\\_score}$
 
 ### Default System Prompts
 

@@ -138,12 +138,6 @@ $$
 \texttt{score} = \max\left(0, \min\left(1, \frac{\texttt{raw\\_score}}{\sum_{i=1}^{n} \max(0, w_i)}\right)\right)
 $$
 
-**Unnormalized score** (`normalize=False`):
-
-$$
-\texttt{score} = \texttt{raw\\_score}
-$$
-
 Pass `normalize=False` to the autograder constructor for raw weighted sums.
 
 **All-Negative Criteria Rubrics:**
@@ -165,11 +159,17 @@ Score = 0.0 when all errors present (all MET, `raw_score` = -total)
 
 Makes 1 inference call for all criteria (vs. $n$ parallel calls). Same scoring as PerCriterionGrader:
 
-**Raw score**: $\texttt{raw\\_score} = \sum_{i=1}^{n} \mathbb{1}[\text{verdict}_i = \text{MET}] \cdot w_i$
+**Raw score**:
 
-**Normalized score** (default): $\texttt{score} = \max\left(0, \min\left(1, \frac{\texttt{raw\\_score}}{\sum_{i=1}^{n} \max(0, w_i)}\right)\right)$
+$$
+\texttt{raw\\_score} = \sum_{i=1}^{n} \mathbb{1}[\text{verdict}_i = \text{MET}] \cdot w_i
+$$
 
-Pass `normalize=False` for raw weighted sums.
+**Normalized score** (`normalize=True`, the default):
+
+$$
+\texttt{score} = \max\left(0, \min\left(1, \frac{\texttt{raw\\_score}}{\sum_{i=1}^{n} \max(0, w_i)}\right)\right)
+$$
 
 ### RubricAsJudgeGrader
 

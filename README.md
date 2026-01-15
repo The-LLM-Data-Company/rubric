@@ -303,8 +303,8 @@ async def generate_with_retries(system_prompt: str, user_prompt: str, max_retrie
 
 | Field | Description |
 |-------|-------------|
-| `score` | Final score. 0-1 when `normalize=True` (default), raw weighted sum when `normalize=False`. |
-| `raw_score` | Raw weighted sum (always available). Consistent across all graders. |
+| `score` | Final score. 0-1 when `normalize=True` (default), `raw_score` when `normalize=False`. |
+| `raw_score` | Raw weighted sum. Consistent across all graders. |
 | `llm_raw_score` | Original LLM output. For `RubricAsJudgeGrader`: 0-100 score. For others: same as `raw_score`. |
 | `report` | Per-criterion breakdown (`None` for `RubricAsJudgeGrader`). |
 
@@ -317,7 +317,7 @@ result = await rubric.grade(text, autograder=grader)
 print(result.score)      # 0.85 (normalized)
 print(result.raw_score)  # 12.75 (raw weighted sum)
 
-# Raw scores (useful for RL training)
+# Raw scores
 grader = PerCriterionGrader(generate_fn=your_function, normalize=False)
 result = await rubric.grade(text, autograder=grader)
 print(result.score)      # 12.75 (raw, can be negative)

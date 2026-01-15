@@ -158,8 +158,8 @@ $$
 \texttt{score} = \max\left(0, \min\left(1, 1 + \frac{\texttt{raw\\_score}}{\sum_{i=1}^{n} |w_i|}\right)\right)
 $$
 
-- Score = 1.0 when all errors avoided (all UNMET, `raw_score` = 0)
-- Score = 0.0 when all errors present (all MET, `raw_score` = -total)
+Score = 1.0 when all errors avoided (all UNMET, `raw_score` = 0)
+Score = 0.0 when all errors present (all MET, `raw_score` = -total)
 
 ### PerCriterionOneShotGrader
 

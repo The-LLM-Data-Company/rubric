@@ -97,6 +97,7 @@ async def main():
     # Select autograder strategy
     grader = PerCriterionGrader(
         generate_fn=generate_with_openai,
+        normalize=False,  # Raw weighted sums
         system_prompt="This overrides the default grader system prompt",
     )
 
@@ -107,7 +108,7 @@ async def main():
         autograder=grader
     )
 
-    print(f"Score: {result.score:.2f}")  # Score is 0.0-1.0
+    print(f"Score: {result.score:.2f}")  # Raw weighted sum
     for criterion in result.report:
         print(f"  [{criterion.verdict}] {criterion.requirement}")
         print(f"    → {criterion.reason}")

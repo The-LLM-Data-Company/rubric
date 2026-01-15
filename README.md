@@ -307,7 +307,6 @@ async def generate_with_retries(system_prompt: str, user_prompt: str, max_retrie
 | `raw_score` | Raw weighted sum (always available). Consistent across all graders. |
 | `llm_raw_score` | Original LLM output. For `RubricAsJudgeGrader`: 0-100 score. For others: same as `raw_score`. |
 | `report` | Per-criterion breakdown (`None` for `RubricAsJudgeGrader`). |
-| `error` | Error message if grading failed (`None` on success). |
 
 ### The `normalize` Parameter
 
@@ -328,8 +327,8 @@ print(result.raw_score)  # 12.75 (same as score)
 **Cross-Grader Consistency:** `raw_score` uses weighted-sum semantics across all graders:
 
 ```python
-result1 = await rubric.grade(text, autograder=PerCriterionGrader())
-result2 = await rubric.grade(text, autograder=RubricAsJudgeGrader())
+result1 = await rubric.grade(text, autograder=PerCriterionGrader(generate_fn=your_fn))
+result2 = await rubric.grade(text, autograder=RubricAsJudgeGrader(generate_fn=your_fn))
 
 print(result1.raw_score)      # 12.75
 print(result2.raw_score)      # 12.75 (converted from LLM's 85/100)

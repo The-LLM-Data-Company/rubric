@@ -123,71 +123,68 @@ Evaluates each criterion in parallel inference calls.
 
 **Scoring Formula:**
 
-For each criterion $i$:
+For each criterion $i$: MET contributes $w_i$, UNMET contributes 0.
 
-- If verdict = MET, contribution = $w_i$
-- If verdict = UNMET, contribution = 0
-
-Final score:
+**Raw score** (always computed):
 
 $$
-\text{score} = \max\left(0, \min\left(1, \frac{\sum_{i=1}^{n} \mathbb{1}[\text{verdict}_i = \text{MET}] \cdot w_i}{\sum_{i=1}^{n} \max(0, w_i)}\right)\right)
+\text{raw\_score} = \sum_{i=1}^{n} \mathbb{1}[\text{verdict}_i = \text{MET}] \cdot w_i
 $$
 
-Where:
+**Normalized score** (`normalize=True`, the default):
 
-- $w_i$ = weight of criterion $i$
-- $\mathbb{1}[\text{verdict}_i = \text{MET}]$ = 1 if criterion is MET, 0 otherwise
-- Denominator = $\sum_{i=1}^{n} \max(0, w_i)$ (positive weights only)
-- Numerator = sum of weights for MET criteria
-- Result clamped to [0, 1]
+$$
+\text{score} = \max\left(0, \min\left(1, \frac{\text{raw\_score}}{\sum_{i=1}^{n} \max(0, w_i)}\right)\right)
+$$
+
+**Unnormalized score** (`normalize=False`):
+
+$$
+\text{score} = \text{raw\_score}
+$$
+
+Pass `normalize=False` to the autograder constructor for raw weighted sums (useful for RL training).
 
 **All-Negative Criteria Rubrics:**
 
-For rubrics containing only negative criteria (e.g., error detection rubrics), a different formula is used:
+For rubrics with only negative criteria (e.g., error detection):
+
+**Raw score**: Same formula as above. Will be ≤ 0 since all weights are negative.
+
+**Normalized score** (default):
 
 $$
-\text{score} = \max\left(0, \min\left(1, 1 + \frac{\sum_{i=1}^{n} \mathbb{1}[\text{verdict}_i = \text{MET}] \cdot w_i}{\sum_{i=1}^{n} |w_i|}\right)\right)
+\text{score} = \max\left(0, \min\left(1, 1 + \frac{\text{raw\_score}}{\sum_{i=1}^{n} |w_i|}\right)\right)
 $$
 
-This ensures:
-- Score = 1.0 when all errors are avoided (all criteria UNMET)
-- Score = 0.0 when all errors are present (all criteria MET)
-- Proportional scores for partial error presence
+- Score = 1.0 when all errors avoided (all UNMET, raw\_score = 0)
+- Score = 0.0 when all errors present (all MET, raw\_score = -total)
 
 ### PerCriterionOneShotGrader
 
-PerCriterionOneShotGrader makes 1 inference call that evaluates all criteria together and returns a structured output, unlike PerCriterionGrader which makes $n$ inference calls.
+Makes 1 inference call for all criteria (vs. $n$ parallel calls). Same scoring as PerCriterionGrader:
 
-**Scoring Formula:**
+**Raw score**: $\text{raw\_score} = \sum_{i=1}^{n} \mathbb{1}[\text{verdict}_i = \text{MET}] \cdot w_i$
 
-Same as PerCriterionGrader:
+**Normalized score** (default): $\text{score} = \max\left(0, \min\left(1, \frac{\text{raw\_score}}{\sum_{i=1}^{n} \max(0, w_i)}\right)\right)$
 
-$$
-\text{score} = \max\left(0, \min\left(1, \frac{\sum_{i=1}^{n} \mathbb{1}[\text{verdict}_i = \text{MET}] \cdot w_i}{\sum_{i=1}^{n} \max(0, w_i)}\right)\right)
-$$
+Pass `normalize=False` for raw weighted sums.
 
 ### RubricAsJudgeGrader
 
-Holistic evaluation where the model returns a final score directly.
+Holistic evaluation where the model returns a single 0-100 score.
 
-**Scoring Formula:**
+**LLM raw score**: The model's direct 0-100 output, preserved in `llm_raw_score`.
 
-The model is instructed to mentally evaluate all criteria and return a score from 0-100:
+**Raw score** (converted to weighted-sum for cross-grader consistency):
 
 $$
-\text{score} = \frac{\text{LLM-judged score}}{100}
+\text{raw\_score} = \frac{\text{llm\_raw\_score}}{100} \times \sum_{i=1}^{n} \max(0, w_i)
 $$
 
-Clamped to [0, 1]. The model is guided to use the same weighted scoring logic, but computes the result in-context rather than aggregating score post-hoc.
+**Normalized score** (`normalize=True`, default): $\text{score} = \max(0, \min(1, \text{llm\_raw\_score} / 100))$
 
-**raw_score Consistency:** The LLM's 0-100 score is converted to weighted-sum semantics for `raw_score`, ensuring consistency with other graders:
-
-```python
-raw_score = (llm_score / 100.0) * total_positive_weight
-```
-
-The original LLM score is preserved in `llm_raw_score` for debugging.
+**Unnormalized score** (`normalize=False`): $\text{score} = \text{raw\_score}$
 
 ### Default System Prompts
 
@@ -303,26 +300,39 @@ async def generate_with_retries(system_prompt: str, user_prompt: str, max_retrie
 
 ## Score Fields
 
-The `EvaluationReport` returned by `rubric.grade()` contains several score fields:
-
 | Field | Description |
 |-------|-------------|
-| `score` | Final score (0-1 if normalized, raw weighted sum if `normalize=False`) |
-| `raw_score` | Weighted sum before normalization. **Consistent semantics across all graders.** |
-| `llm_raw_score` | Original LLM output before conversion. For `RubricAsJudgeGrader`, this is the 0-100 score. |
-| `report` | Per-criterion breakdown (None for `RubricAsJudgeGrader`) |
+| `score` | Final score. 0-1 when `normalize=True` (default), raw weighted sum when `normalize=False`. |
+| `raw_score` | Raw weighted sum (always available). Consistent across all graders. |
+| `llm_raw_score` | Original LLM output. For `RubricAsJudgeGrader`: 0-100 score. For others: same as `raw_score`. |
+| `report` | Per-criterion breakdown (`None` for `RubricAsJudgeGrader`). |
+| `error` | Error message if grading failed (`None` on success). |
 
-**Cross-Grader Consistency:** `raw_score` uses weighted-sum semantics across all graders, enabling direct comparison:
+### The `normalize` Parameter
 
 ```python
-# Same rubric, different graders - raw_score is comparable
+# Default: normalized 0-1 scores
+grader = PerCriterionGrader(generate_fn=your_function)
+result = await rubric.grade(text, autograder=grader)
+print(result.score)      # 0.85 (normalized)
+print(result.raw_score)  # 12.75 (raw weighted sum)
+
+# Raw scores (useful for RL training)
+grader = PerCriterionGrader(generate_fn=your_function, normalize=False)
+result = await rubric.grade(text, autograder=grader)
+print(result.score)      # 12.75 (raw, can be negative)
+print(result.raw_score)  # 12.75 (same as score)
+```
+
+**Cross-Grader Consistency:** `raw_score` uses weighted-sum semantics across all graders:
+
+```python
 result1 = await rubric.grade(text, autograder=PerCriterionGrader())
 result2 = await rubric.grade(text, autograder=RubricAsJudgeGrader())
 
-# Both raw_scores are on the same scale (weighted sum)
-print(result1.raw_score)      # e.g., 12.75
-print(result2.raw_score)      # e.g., 12.75 (converted from LLM's 85/100)
-print(result2.llm_raw_score)  # e.g., 85.0 (original LLM output)
+print(result1.raw_score)      # 12.75
+print(result2.raw_score)      # 12.75 (converted from LLM's 85/100)
+print(result2.llm_raw_score)  # 85.0 (original LLM output)
 ```
 
 ## Loading Rubrics
@@ -385,6 +395,60 @@ rubric = Rubric.from_file('rubric.yaml')
   requirement: "Explicitly uses Shapley attribution for decomposition"
 - weight: -15.0
   requirement: "Uses total deliveries instead of cash-only deliveries"
+```
+
+## Length Penalty
+
+Penalizes verbose outputs. Configured on the autograder, applied after scoring.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `free_budget` | 6000 | No penalty below this count |
+| `max_cap` | 8000 | Max penalty at/above this count |
+| `penalty_at_cap` | 0.5 | Max penalty to subtract |
+| `exponent` | 1.6 | Curve steepness |
+| `count_fn` | `word_count` | Custom counting function |
+| `penalty_type` | `"ALL"` | `"ALL"`, `"OUTPUT_ONLY"`, or `"THINKING_ONLY"` |
+
+**Formula:**
+- `count <= free_budget`: penalty = 0
+- `count >= max_cap`: penalty = `penalty_at_cap`
+- Otherwise: `penalty = penalty_at_cap * ((count - free_budget) / (max_cap - free_budget)) ** exponent`
+
+```python
+grader = PerCriterionGrader(
+    generate_fn=your_function,
+    length_penalty=LengthPenalty(free_budget=8000, max_cap=10000, penalty_at_cap=0.5)
+)
+
+# Custom tokenizer
+from transformers import AutoTokenizer
+tokenizer = AutoTokenizer.from_pretrained("gpt2")
+penalty = LengthPenalty(count_fn=lambda t: len(tokenizer.encode(t)))
+```
+
+## Thinking/Output Support
+
+For models with separate reasoning (e.g., Claude extended thinking).
+
+**Input Formats:**
+
+```python
+# Dict format
+await rubric.grade({"thinking": "...", "output": "..."})
+
+# String with markers (auto-parsed)
+await rubric.grade("<thinking>...</thinking><output>...</output>")
+
+# Plain string (backwards compatible)
+await rubric.grade("response text")
+```
+
+**Selective Penalty:**
+
+```python
+# Only penalize output length, not thinking
+penalty = LengthPenalty(penalty_type="OUTPUT_ONLY")
 ```
 
 ## Requirements

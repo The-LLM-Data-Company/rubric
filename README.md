@@ -324,17 +324,6 @@ print(result.score)      # 12.75 (raw, can be negative)
 print(result.raw_score)  # 12.75 (same as score)
 ```
 
-**Cross-Grader Consistency:** `raw_score` uses weighted-sum semantics across all graders:
-
-```python
-result1 = await rubric.grade(text, autograder=PerCriterionGrader(generate_fn=your_fn))
-result2 = await rubric.grade(text, autograder=RubricAsJudgeGrader(generate_fn=your_fn))
-
-print(result1.raw_score)      # 12.75
-print(result2.raw_score)      # 12.75 (converted from LLM's 85/100)
-print(result2.llm_raw_score)  # 85.0 (original LLM output)
-```
-
 ## Loading Rubrics
 
 ```python

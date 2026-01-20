@@ -8,7 +8,6 @@ from rubric.types import (
     Criterion,
     CriterionReport,
     EvaluationReport,
-    LengthPenalty,
     OneShotGenerateFn,
 )
 
@@ -95,7 +94,6 @@ class PerCriterionOneShotGrader(Autograder):
         generate_fn: Typed generate function that returns validated OneShotOutput.
             Users handle parsing, validation, and retries in their implementation.
         system_prompt: System prompt for one-shot evaluation.
-        length_penalty: Optional length penalty configuration.
         normalize: If True (default), normalize scores to 0-1.
     """
 
@@ -104,10 +102,9 @@ class PerCriterionOneShotGrader(Autograder):
         generate_fn: OneShotGenerateFn,
         *,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
-        length_penalty: LengthPenalty | None = None,
         normalize: bool = True,
     ):
-        super().__init__(length_penalty=length_penalty, normalize=normalize)
+        super().__init__(normalize=normalize)
         self.generate_fn = generate_fn
         self.system_prompt = system_prompt
 

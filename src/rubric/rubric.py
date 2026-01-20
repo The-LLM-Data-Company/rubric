@@ -8,7 +8,7 @@ import yaml
 from pydantic import ValidationError
 
 from rubric.autograders import Autograder, PerCriterionGrader
-from rubric.types import Criterion, EvaluationReport, ToGradeInput
+from rubric.types import Criterion, EvaluationReport
 from rubric.utils import default_per_criterion_generate_fn
 
 
@@ -24,7 +24,7 @@ class Rubric:
 
     async def grade(
         self,
-        to_grade: ToGradeInput,
+        to_grade: str,
         autograder: Autograder | None = None,
         query: str | None = None,
         **kwargs: Any,
@@ -32,11 +32,9 @@ class Rubric:
         """Grade text against this rubric using an autograder.
 
         Args:
-            to_grade: The text to evaluate. Can be either:
-                - A string (optionally with <thinking>/<output> markers)
-                - A dict with 'thinking' and 'output' keys
+            to_grade: The text to evaluate.
             autograder: Optional autograder to use. Defaults to PerCriterionGrader.
-                Configure length_penalty and normalize on the autograder if needed.
+                Configure normalize on the autograder if needed.
             query: Optional input/query that prompted the response.
             **kwargs: Additional arguments (unused).
         """

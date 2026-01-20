@@ -8,8 +8,8 @@ A Python library for evaluating text outputs against weighted criteria using LLM
 src/rubric/
 ├── __init__.py              # Public exports
 ├── rubric.py                # Core Rubric class
-├── types.py                 # Type definitions (Criterion, LengthPenalty, protocols)
-├── utils.py                 # Utility functions (length penalty, default generators)
+├── types.py                 # Type definitions (Criterion, protocols)
+├── utils.py                 # Utility functions (default generators)
 └── autograders/
     ├── __init__.py          # Autograder exports
     ├── base.py              # Abstract Autograder base class
@@ -125,9 +125,6 @@ response = await openai_client.chat.completions.create(
 output = PerCriterionOutput.model_validate_json(response.choices[0].message.content)
 ```
 
-### `LengthPenalty`
-Configuration for penalizing overly long outputs (see Length Penalty section below).
-
 ## Typed GenerateFn Protocols
 
 Each autograder requires a specific typed `generate_fn` protocol that returns a validated Pydantic model:
@@ -199,7 +196,6 @@ def __init__(
     generate_fn: TypedGenerateFn,                   # Typed LLM generation function (required)
     *,
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,     # Customizable system prompt
-    length_penalty: LengthPenalty | None = None,    # Optional length penalty config
     normalize: bool = True,                          # If False, return raw weighted sums
 ):
 ```
@@ -270,7 +266,7 @@ This ensures `raw_score` is comparable across all grader types for training pipe
 
 ## Grade Calculation
 
-The base score calculation (before length penalty) works as follows:
+The score calculation works as follows:
 
 1. **Positive criteria** (weight > 0): MET earns the weight, UNMET earns 0
 2. **Negative criteria** (weight < 0): MET subtracts the weight, UNMET contributes 0
@@ -281,8 +277,6 @@ total_positive_weight = sum(max(0.0, c.weight) for c in criteria)
 weighted_sum = sum((1.0 if verdict == "MET" else 0.0) * c.weight for c in criteria)
 score = max(0.0, min(1.0, weighted_sum / total_positive_weight))
 ```
-
-**Important**: The length penalty is applied **after** this calculation.
 
 ### Raw Scores for Training (normalize=False)
 
@@ -328,231 +322,6 @@ print(result2.llm_raw_score)  # e.g., 85.0 (original LLM output)
 print(result2.raw_score)      # e.g., 12.75 (converted to weighted sum)
 ```
 
-## Length Penalty
-
-Length penalty discourages excessively verbose outputs during training. It is configured on the **autograder constructor** and is applied **after** the base grade calculation. The penalty is **subtracted** from the score.
-
-### Configuration
-
-```python
-class LengthPenalty(BaseModel):
-    free_budget: int = 6000        # No penalty below this count
-    max_cap: int = 8000            # Maximum penalty at/above this count
-    penalty_at_cap: float = 0.5    # Max penalty to subtract from score
-    exponent: float = 1.6          # Curve steepness (higher = more lenient near budget)
-    count_fn: CountFn | None = None  # Custom counting function
-    penalty_type: PenaltyType = "ALL"  # Which sections to count: "ALL", "OUTPUT_ONLY", "THINKING_ONLY"
-```
-
-For **normalized scores** (0-1), use fractional `penalty_at_cap` values like `0.5` (lose up to 50% of score).
-
-For **raw scores** (training), use absolute `penalty_at_cap` values like `50.0` (subtract up to 50 points from raw score).
-
-### Penalty Formula
-
-```
-if count <= free_budget:
-    penalty = 0
-elif count >= max_cap:
-    penalty = penalty_at_cap
-else:
-    frac = (count - free_budget) / (max_cap - free_budget)
-    penalty = penalty_at_cap * (frac ** exponent)
-
-final_score = max(0.0, base_score - penalty)
-```
-
-### Default Counting
-
-By default, `LengthPenalty` uses whitespace word counting (`text.split()`). The default values (6000/8000) are calibrated for word counts.
-
-### Custom Tokenizer Example
-
-For accurate token-based penalties (e.g., during RL training):
-
-```python
-from transformers import AutoTokenizer
-from rubric import LengthPenalty
-
-tokenizer = AutoTokenizer.from_pretrained("gpt2")
-
-penalty = LengthPenalty(
-    free_budget=8000,   # 8000 tokens free
-    max_cap=10000,      # Max penalty at 10000 tokens
-    penalty_at_cap=0.5, # Lose up to 50% of score
-    exponent=1.6,
-    count_fn=lambda text: len(tokenizer.encode(text))
-)
-```
-
-### Usage
-
-Length penalty is configured on the autograder, not on the grade() call:
-
-```python
-from rubric import Rubric, LengthPenalty
-from rubric.autograders import PerCriterionGrader
-
-rubric = Rubric.from_file("rubric.yaml")
-
-# Without length penalty
-result = await rubric.grade(response)
-
-# With length penalty - configure on the autograder
-grader = PerCriterionGrader(generate_fn=your_generate_fn, length_penalty=LengthPenalty())
-result = await rubric.grade(response, autograder=grader)
-
-# With custom tokenizer
-grader = PerCriterionGrader(
-    generate_fn=your_generate_fn,
-    length_penalty=LengthPenalty(
-        free_budget=8000,
-        max_cap=10000,
-        count_fn=lambda t: len(tokenizer.encode(t))
-    )
-)
-result = await rubric.grade(response, autograder=grader)
-```
-
-### Key Points
-
-1. **Length penalty only subtracts** - it cannot increase the score
-2. **Configured on autograder** - pass `length_penalty` to the autograder constructor
-3. **Applied after aggregation** - the base rubric score is computed first, then penalty is subtracted
-4. **Final score is clamped to 0** - `max(0.0, score - penalty)` when normalized
-5. **Configurable curve** - the exponent controls how quickly penalty ramps up after free_budget
-
-## Thinking/Output Token Support
-
-For models that generate thinking/reasoning steps separately from final output (e.g., Claude with extended thinking), you can apply length penalties to specific sections.
-
-### Input Formats
-
-The `to_grade` parameter accepts three formats:
-
-**1. Dict Format (Explicit)**
-```python
-await rubric.grade({
-    "thinking": "Let me reason through this step by step...",
-    "output": "The final answer is 42"
-})
-```
-
-**2. String with Markers (Auto-parsed)**
-```python
-await rubric.grade(
-    "<thinking>My reasoning process...</thinking><output>Final answer</output>"
-)
-```
-
-**3. Plain String (Backwards Compatible)**
-```python
-await rubric.grade("Just a regular response")  # Treated as all output
-```
-
-### XML Tag Structure in Prompts
-
-The autograders wrap your content in `<response>` XML tags when sending to the LLM. If a `query` is provided, it's wrapped in `<query>` tags (this is optional). If you provide a custom `system_prompt`, ensure it handles the response content appropriately. The response may contain:
-
-**Nested structure (thinking/output):**
-```xml
-<response>
-<thinking>{thinking_content}</thinking>
-<output>{output_content}</output>
-</response>
-```
-
-**Plain string:**
-```xml
-<response>
-{content}
-</response>
-```
-
-The structure depends on what you pass to `rubric.grade()`. Customize your system prompt accordingly.
-
-### Penalty Type Selection
-
-Use the `penalty_type` parameter in `LengthPenalty` to control which sections are counted:
-
-```python
-penalty = LengthPenalty(
-    free_budget=8000,
-    max_cap=10000,
-    penalty_at_cap=0.5,
-    penalty_type="OUTPUT_ONLY"  # Options: "ALL", "OUTPUT_ONLY", "THINKING_ONLY"
-)
-```
-
-**Penalty Types:**
-- `"ALL"` - Count both thinking and output tokens (default, backwards compatible)
-- `"OUTPUT_ONLY"` - Only count output tokens (useful for RL training to allow long reasoning)
-- `"THINKING_ONLY"` - Only count thinking tokens (penalize excessive reasoning)
-
-### Use Cases
-
-**1. RL Training: Allow Long Reasoning, Penalize Verbose Output**
-```python
-from transformers import AutoTokenizer
-from rubric import Rubric, LengthPenalty
-from rubric.autograders import PerCriterionGrader
-
-tokenizer = AutoTokenizer.from_pretrained("your-model")
-
-grader = PerCriterionGrader(
-    generate_fn=your_llm_fn,
-    normalize=False,  # Raw scores for training
-    length_penalty=LengthPenalty(
-        free_budget=8000,
-        max_cap=10000,
-        penalty_at_cap=50.0,  # Absolute penalty for raw scores
-        penalty_type="OUTPUT_ONLY",  # Don't penalize thinking
-        count_fn=lambda t: len(tokenizer.encode(t, add_special_tokens=False))
-    )
-)
-
-# Grade with separate thinking and output
-result = await rubric.grade(
-    {"thinking": long_reasoning, "output": final_answer},
-    autograder=grader
-)
-# result.score = raw weighted sum - output length penalty
-```
-
-**2. Penalize Excessive Reasoning**
-```python
-grader = PerCriterionGrader(
-    generate_fn=your_generate_fn,
-    length_penalty=LengthPenalty(
-        free_budget=5000,
-        penalty_type="THINKING_ONLY",  # Only penalize long thinking
-    )
-)
-```
-
-**3. Claude API with Extended Thinking**
-```python
-# Claude API returns separate thinking and content
-response = await claude_client.messages.create(
-    model="claude-sonnet-4-5",
-    extended_thinking=True,
-    ...
-)
-
-# Pass to rubric
-result = await rubric.grade({
-    "thinking": response.thinking,
-    "output": response.content[0].text
-}, autograder=grader)
-```
-
-### Backwards Compatibility
-
-All existing code continues to work without changes:
-- Plain strings are treated as output (no thinking section)
-- `LengthPenalty` without `penalty_type` defaults to `"ALL"`
-- String with markers is automatically parsed when `LengthPenalty` is configured
-
 ## Training / RL Use Cases
 
 For reinforcement learning training, you typically want raw (unnormalized) scores that can be positive or negative, rather than everything squeezed into 0-1. The rubric package supports this via the `normalize` parameter.
@@ -560,31 +329,20 @@ For reinforcement learning training, you typically want raw (unnormalized) score
 ### Basic Training Setup
 
 ```python
-from transformers import AutoTokenizer
-from rubric import Rubric, LengthPenalty
+from rubric import Rubric
 from rubric.autograders import PerCriterionGrader
 
-# Load tokenizer for accurate token counting
-tokenizer = AutoTokenizer.from_pretrained("your-model")
-
-# Configure for training: raw scores + absolute length penalty
+# Configure for training: raw scores
 grader = PerCriterionGrader(
     generate_fn=your_llm_fn,
     normalize=False,  # Return raw weighted sums
-    length_penalty=LengthPenalty(
-        free_budget=8000,      # 8000 tokens free
-        max_cap=10000,         # Max penalty at 10000 tokens
-        penalty_at_cap=50.0,   # Subtract up to 50 points (absolute)
-        exponent=1.6,
-        count_fn=lambda text: len(tokenizer.encode(text, add_special_tokens=False))
-    )
 )
 
 rubric = Rubric.from_file("rubric.yaml")
 result = await rubric.grade(response, autograder=grader)
 
-# result.score = raw weighted sum - length penalty
-# result.raw_score = raw weighted sum (before length penalty)
+# result.score = raw weighted sum
+# result.raw_score = raw weighted sum
 ```
 
 ### Batch Processing
@@ -611,7 +369,6 @@ async def compute_rewards_batch(
 | Aspect | Normalized (default) | Training (normalize=False) |
 |--------|---------------------|---------------------------|
 | Score range | 0.0 to 1.0 | Can be negative or > 1 |
-| Length penalty | Fractional (e.g., 0.5) | Absolute (e.g., 50.0) |
 | Clamping | Score clamped to [0, 1] | No clamping |
 | Use case | Evaluation, reporting | RL reward signals |
 
@@ -619,7 +376,7 @@ async def compute_rewards_batch(
 
 Subclass `Autograder` and implement `judge()` and `aggregate()`. The only requirements are:
 1. Implement the abstract methods `judge()` and `aggregate()`
-2. Call `super().__init__(length_penalty=..., normalize=...)`
+2. Call `super().__init__(normalize=...)`
 
 How you implement grading logic is up to you - you can use a `generate_fn` parameter (like the built-in autograders), make LLM calls directly, use multiple functions, or even do rule-based grading without LLMs.
 
@@ -628,7 +385,7 @@ How you implement grading logic is up to you - you can use a `generate_fn` param
 ```python
 from typing import Protocol
 from rubric.autograders import Autograder
-from rubric.types import Criterion, EvaluationReport, LengthPenalty
+from rubric.types import Criterion, EvaluationReport
 from pydantic import BaseModel
 
 # 1. Define your Pydantic output schema (if using LLMs)
@@ -649,10 +406,9 @@ class MyAutograder(Autograder):
         generate_fn: MyCustomGenerateFn,  # Optional - just an implementation choice
         *,
         system_prompt: str = "Grade this response.",
-        length_penalty: LengthPenalty | None = None,
         normalize: bool = True,
     ):
-        super().__init__(length_penalty=length_penalty, normalize=normalize)
+        super().__init__(normalize=normalize)
         self.generate_fn = generate_fn
         self.system_prompt = system_prompt
 
@@ -679,9 +435,8 @@ class MyAutograder(Autograder):
 **Key points:**
 - The `generate_fn` pattern used by built-in autograders is optional - it's just one way to structure your code
 - You could make LLM calls directly in `judge()`, use multiple functions, or skip LLMs entirely
-- Call the base constructor with common parameters (`length_penalty`, `normalize`)
+- Call the base constructor with the `normalize` parameter
 - Store any autograder-specific parameters as instance attributes
-- The base `grade()` method handles length penalty application automatically
 
 ## Public Exports
 
@@ -693,8 +448,6 @@ from rubric import (
     Criterion,
     CriterionReport,
     EvaluationReport,
-    LengthPenalty,
-    CountFn,
 
     # Pydantic output schemas
     PerCriterionOutput,
@@ -711,17 +464,6 @@ from rubric import (
     default_per_criterion_generate_fn,
     default_oneshot_generate_fn,
     default_rubric_as_judge_generate_fn,
-
-    # Thinking/output support
-    PenaltyType,
-    ThinkingOutputDict,
-    ToGradeInput,
-
-    # Utility functions
-    compute_length_penalty,
-    normalize_to_grade_input,
-    parse_thinking_output,
-    word_count,
 )
 ```
 

@@ -7,6 +7,7 @@ from rubric.autograders import DoublePassPerCriterionOneShotGrader
 @pytest.mark.asyncio
 async def test_double_pass_grader_basic_integration(sample_rubric, sample_output):
     """Basic integration test - should work like regular one-shot when both passes agree."""
+
     # Custom generate function that returns consistent results regardless of criteria order
     async def generate_fn(system_prompt: str, user_prompt: str) -> OneShotOutput:
         # Parse the number of criteria from the prompt
@@ -180,7 +181,8 @@ async def test_negative_criterion_met_if_either_pass_detects():
                 ]
             )
         else:
-            # Pass 2 (reversed): Position 1 = profanity (detected), Position 2 = errors (not detected)
+            # Pass 2 (reversed): Position 1 = profanity (detected),
+            # Position 2 = errors (not detected)
             return OneShotOutput(
                 criteria_evaluations=[
                     CriterionEvaluation(
@@ -299,12 +301,8 @@ async def test_normalize_false():
     async def generate_fn(system_prompt: str, user_prompt: str) -> OneShotOutput:
         return OneShotOutput(
             criteria_evaluations=[
-                CriterionEvaluation(
-                    criterion_number=1, criterion_status="MET", explanation="Test"
-                ),
-                CriterionEvaluation(
-                    criterion_number=2, criterion_status="MET", explanation="Test"
-                ),
+                CriterionEvaluation(criterion_number=1, criterion_status="MET", explanation="Test"),
+                CriterionEvaluation(criterion_number=2, criterion_status="MET", explanation="Test"),
             ]
         )
 

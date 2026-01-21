@@ -16,6 +16,7 @@ src/rubric/
     ├── schemas.py           # Pydantic output schemas
     ├── per_criterion_grader.py         # Parallel per-criterion evaluation
     ├── per_criterion_one_shot_grader.py # Single-call all-criteria evaluation
+    ├── double_pass_per_criterion_one_shot_grader.py # Double-pass with conservative reconciliation
     └── rubric_as_judge_grader.py       # Holistic scoring
 ```
 
@@ -237,6 +238,31 @@ grader = PerCriterionOneShotGrader(generate_fn=my_generate_fn)
 - **aggregate()**: Same weighted scoring as PerCriterionGrader
 - Returns detailed `CriterionReport` for each criterion
 - Requires: `OneShotGenerateFn` returning `OneShotOutput`
+
+### `DoublePassPerCriterionOneShotGrader`
+Evaluates criteria **twice with reversed order** to reduce position bias. Uses conservative reconciliation.
+
+```python
+from rubric import OneShotGenerateFn, OneShotOutput
+from rubric.autograders import DoublePassPerCriterionOneShotGrader
+
+async def my_generate_fn(system_prompt: str, user_prompt: str) -> OneShotOutput:
+    # Your LLM call here
+    ...
+
+grader = DoublePassPerCriterionOneShotGrader(generate_fn=my_generate_fn)
+```
+
+- **judge()**: Two parallel LLM calls - one with original order, one with reversed order
+- **aggregate()**: Same weighted scoring as PerCriterionGrader
+- Returns detailed `CriterionReport` for each criterion
+- Requires: `OneShotGenerateFn` returning `OneShotOutput`
+
+**Conservative Reconciliation:**
+- **Positive criteria** (weight > 0): MET only if BOTH passes agree (strict on requirements)
+- **Negative criteria** (weight < 0): MET if EITHER pass detects it (strict on error detection)
+
+This produces rigorous evaluations where high scores indicate strong confidence, and errors are caught even if only one pass notices them.
 
 ### `RubricAsJudgeGrader`
 Asks the LLM for a **single holistic score** (0-100). Fastest but no per-criterion breakdown.
@@ -473,6 +499,7 @@ from rubric.autograders import (
     Autograder,              # Base class
     PerCriterionGrader,      # Parallel per-criterion grading
     PerCriterionOneShotGrader,  # Single-call all-criteria grading
+    DoublePassPerCriterionOneShotGrader,  # Double-pass with conservative reconciliation
     RubricAsJudgeGrader,     # Holistic scoring
 )
 ```

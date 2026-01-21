@@ -171,15 +171,6 @@ $$
 \texttt{score} = \max\left(0, \min\left(1, \frac{\texttt{raw\\_score}}{\sum_{i=1}^{n} \max(0, w_i)}\right)\right)
 $$
 
-### DoublePassPerCriterionOneShotGrader
-
-Makes 2 parallel inference calls with criteria in original and reversed order to reduce position bias. Uses **conservative reconciliation**:
-
-- **Positive criteria** (weight > 0): MET only if BOTH passes agree
-- **Negative criteria** (weight < 0): MET if EITHER pass detects the error
-
-This produces rigorous evaluations where high scores require consistent evidence, and errors are caught even if only one pass notices them. Same scoring formula as PerCriterionOneShotGrader after reconciliation.
-
 ### RubricAsJudgeGrader
 
 Holistic evaluation where the model returns a single 0-100 score.
@@ -204,15 +195,12 @@ Each autograder uses a specialized system prompt optimized for its evaluation ap
 
 **PerCriterionOneShotGrader** - Streamlined prompt for evaluating all criteria in a single response. Focuses on providing verdicts (MET/UNMET) and explanations for each criterion in a structured JSON format.
 
-**DoublePassPerCriterionOneShotGrader** - Uses the same prompt as PerCriterionOneShotGrader but runs it twice (with reversed criteria order) and applies conservative reconciliation to reduce position bias.
-
 **RubricAsJudgeGrader** - Holistic evaluation prompt that asks the LLM to consider the output as a whole and provide a single overall score from 0-100, taking into account the weights of all criteria.
 
 You can view the complete default prompts in the source files:
 
 - [`per_criterion_grader.py`](src/rubric/autograders/per_criterion_grader.py#L15)
 - [`per_criterion_one_shot_grader.py`](src/rubric/autograders/per_criterion_one_shot_grader.py#L15)
-- [`double_pass_per_criterion_one_shot_grader.py`](src/rubric/autograders/double_pass_per_criterion_one_shot_grader.py) (uses same prompt as PerCriterionOneShotGrader)
 - [`rubric_as_judge_grader.py`](src/rubric/autograders/rubric_as_judge_grader.py#L14)
 
 **Customizing System Prompts:** You can override the default system prompt by passing a `system_prompt` parameter to any autograder:
@@ -262,7 +250,6 @@ grader = PerCriterionGrader(generate_fn=your_custom_function)
 Each autograder requires a specific return type:
 - `PerCriterionGrader` → `PerCriterionOutput`
 - `PerCriterionOneShotGrader` → `OneShotOutput`
-- `DoublePassPerCriterionOneShotGrader` → `OneShotOutput`
 - `RubricAsJudgeGrader` → `RubricAsJudgeOutput`
 
 **2. Create custom autograder**

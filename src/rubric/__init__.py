@@ -19,7 +19,7 @@ from rubric.utils import (
     default_rubric_as_judge_generate_fn,
 )
 
-__version__ = "2.0.1"
+__version__ = "2.1.0"
 __all__ = [
     "Criterion",
     "CriterionEvaluation",

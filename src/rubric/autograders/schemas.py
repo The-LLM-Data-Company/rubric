@@ -17,15 +17,18 @@ class PerCriterionOutput(BaseModel):
 
     Example:
         >>> output = PerCriterionOutput(
-        ...     criterion_status="MET",
-        ...     explanation="The response correctly identifies the diagnosis."
+        ...     explanation="The response correctly identifies the diagnosis.",
+        ...     criterion_status="MET"
         ... )
     """
 
+    explanation: str = Field(
+        description="Brief explanation of whether the criterion is present (MET) or \
+        absent (UNMET) in the response.",
+    )
     criterion_status: Literal["MET", "UNMET"] = Field(
         description="Whether the criterion is present (MET) or absent (UNMET) in the response."
     )
-    explanation: str = Field(description="Brief explanation of the verdict.")
 
 
 class CriterionEvaluation(BaseModel):
@@ -34,11 +37,16 @@ class CriterionEvaluation(BaseModel):
     Used by OneShotOutput to represent each criterion's verdict.
     """
 
-    criterion_number: int = Field(description="The 1-based index of the criterion being evaluated.")
+    criterion_number: int = Field(
+        description="The 1-based index of the criterion being evaluated (starts at 1, not 0)."
+    )
+    explanation: str = Field(
+        description="Brief explanation of whether the criterion is present (MET) or \
+        absent (UNMET) in the response."
+    )
     criterion_status: Literal["MET", "UNMET"] = Field(
         description="Whether the criterion is present (MET) or absent (UNMET) in the response."
     )
-    explanation: str = Field(description="Brief explanation of the verdict.")
 
 
 class OneShotOutput(BaseModel):
@@ -48,8 +56,8 @@ class OneShotOutput(BaseModel):
 
     Example:
         >>> output = OneShotOutput(criteria_evaluations=[
-        ...     CriterionEvaluation(criterion_number=1, criterion_status="MET", explanation="..."),
-        ...     CriterionEvaluation(criterion_number=2, criterion_status="UNMET", explanation="...")
+        ...     CriterionEvaluation(criterion_number=1, explanation="...", criterion_status="MET"),
+        ...     CriterionEvaluation(criterion_number=2, explanation="...", criterion_status="UNMET")
         ... ])
     """
 
@@ -64,10 +72,13 @@ class RubricAsJudgeOutput(BaseModel):
     Returns a single holistic score from 0-100.
 
     Example:
-        >>> output = RubricAsJudgeOutput(overall_score=85.0, explanation="...")
+        >>> output = RubricAsJudgeOutput(explanation="...", overall_score=85.0)
     """
 
+    explanation: str = Field(
+        description="Brief explanation of the holistic score from 0-100 representing overall \
+        rubric satisfaction.",
+    )
     overall_score: float = Field(
         description="Holistic score from 0-100 representing overall rubric satisfaction.",
     )
-    explanation: str = Field(description="Brief explanation of the score.")

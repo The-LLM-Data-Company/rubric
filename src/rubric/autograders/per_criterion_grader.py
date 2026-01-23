@@ -80,8 +80,8 @@ CRITERION STATUS:
 Your response must be valid JSON with this exact format:
 
 {
-"criterion_status": "MET",
-"explanation": "Brief explanation of why the criterion is or isn't present."
+"explanation": "Brief explanation of why the criterion is MET.",
+"criterion_status": "MET"
 }
 
 Examples:
@@ -89,32 +89,32 @@ Examples:
 Positive criterion: "States Q4 2023 base margin as 17.2%"
 Response: "The Q4 2023 base margin was 17.2% before adjustments."
 {
-"criterion_status": "MET",
-"explanation": "The response states Q4 2023 base margin as 17.2%, as required."
+"explanation": "The response states Q4 2023 base margin as 17.2%, as required.",
+"criterion_status": "MET"
 }
 
 Negative criterion: "States that the patient has celiac disease"
 Response: "This patient does not have celiac disease."
 {
-"criterion_status": "UNMET",
 "explanation": "The response explicitly states the patient does NOT have celiac disease, so \
-this error is not present."
+this error is not present.",
+"criterion_status": "UNMET"
 }
 
 Positive criterion: "Administers epinephrine immediately for anaphylaxis"
 Response: "If symptoms worsen, give epinephrine and call for help."
 {
-"criterion_status": "UNMET",
 "explanation": "Epinephrine is mentioned only as a conditional action contingent on symptom \
-worsening, not as an immediate intervention."
+worsening, not as an immediate intervention.",
+"criterion_status": "UNMET"
 }
 
 Positive criterion: "States there is no location in China"
 Response: "Locations are only in United States and Canada."
 {
-"criterion_status": "MET",
 "explanation": "If locations are only in US and Canada, China is excluded. The response logically \
-entails no China location without mentioning China.""
+entails no China location without mentioning China.",
+"criterion_status": "MET"
 }
 
 Return only raw JSON starting with {, no back-ticks, no 'json' prefix."""

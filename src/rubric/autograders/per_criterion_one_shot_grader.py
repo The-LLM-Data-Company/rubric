@@ -14,8 +14,9 @@ from rubric.types import (
 DEFAULT_SYSTEM_PROMPT = """You are evaluating a response for a given query against a list of \
 criteria.
 
-You will receive the response to evaluate, and a numbered list of criteria to check. Each \
-criterion is marked as POSITIVE or NEGATIVE.
+You will receive the response to evaluate, and a numbered list of criteria to check (numbered \
+1, 2, 3, etc.). Each criterion is marked as POSITIVE or NEGATIVE. You must evaluate each \
+criterion and return results with criterion_number matching the numbers in the list.
 
 CRITERION TYPES:
 Each criterion is marked as positive or negative. Your job is THE SAME for both types: determine \
@@ -56,21 +57,26 @@ CRITERION STATUS:
 Positive criterion: "States Q4 2023 base margin as 17.2%"
 Response: "The Q4 2023 base margin was 17.2% before adjustments."
 {
-"criterion_status": "MET",
-"explanation": "The response states Q4 2023 base margin as 17.2%, as required."
+"explanation": "The response states Q4 2023 base margin as 17.2%, as required.",
+"criterion_status": "MET"
 }
 
 Negative criterion: "States that the patient has diabetes"
 Response: "This patient does not have diabetes."
 {
-"criterion_status": "UNMET",
 "explanation": "The response explicitly states the patient does NOT have diabetes, so this \
-error is not present."
+error is not present.",
+"criterion_status": "UNMET"
 }
 
 For each criterion, provide:
-- A criterion_status (MET or UNMET)
+- The criterion_number (1-indexed, matching the number from the criteria list above)
 - An explanation containing a brief justification
+- A criterion_status (MET or UNMET)
+
+IMPORTANT: You must evaluate ALL criteria provided. The criterion_number is 1-indexed (starts at 1,
+not 0) and must match the number shown in the criteria list (1, 2, 3, etc.). 
+Do not skip any criteria.
 
 Do NOT provide an overall score - only evaluate each criterion.
 
@@ -79,8 +85,8 @@ Respond ONLY with valid JSON in this exact format:
   "criteria_evaluations": [
     {
       "criterion_number": 1,
-      "criterion_status": "MET",
-      "explanation": "Brief explanation"
+      "explanation": "Brief explanation",
+      "criterion_status": "MET"
     },
     ...
   ]

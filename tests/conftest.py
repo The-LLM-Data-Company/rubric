@@ -109,7 +109,7 @@ def per_criterion_generate_fn() -> PerCriterionGenerateFn:
 def one_shot_generate_fn(sample_criteria: CriterionList) -> OneShotGenerateFn:
     async def _generate(system_prompt: str, user_prompt: str) -> OneShotOutput:
         evaluations = []
-        for index, criterion in enumerate(sample_criteria, start=1):
+        for index, criterion in enumerate(sample_criteria):
             if criterion.weight < 0:
                 # For negative criteria: UNMET means error is NOT present (good)
                 criterion_status = "UNMET"

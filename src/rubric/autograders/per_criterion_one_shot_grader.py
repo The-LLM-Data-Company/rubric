@@ -15,8 +15,8 @@ DEFAULT_SYSTEM_PROMPT = """You are evaluating a response for a given query again
 criteria.
 
 You will receive the response to evaluate, and a numbered list of criteria to check (numbered \
-1, 2, 3, etc.). Each criterion is marked as POSITIVE or NEGATIVE. You must evaluate each \
-criterion and return results with criterion_number matching the numbers in the list.
+0, 1, 2, etc.). Each criterion is marked as POSITIVE or NEGATIVE. You must evaluate each \
+criterion and return results with criterion_number matching the indices in the list.
 
 CRITERION TYPES:
 Each criterion is marked as positive or negative. Your job is THE SAME for both types: determine \
@@ -70,12 +70,12 @@ error is not present.",
 }
 
 For each criterion, provide:
-- The criterion_number (1-indexed, matching the number from the criteria list above)
+- The criterion_number (0-indexed, matching the index from the criteria list above)
 - An explanation containing a brief justification
 - A criterion_status (MET or UNMET)
 
-IMPORTANT: You must evaluate ALL criteria provided. The criterion_number is 1-indexed (starts at 1,
-not 0) and must match the number shown in the criteria list (1, 2, 3, etc.). 
+IMPORTANT: You must evaluate ALL criteria provided. The criterion_number is 0-indexed (starts at 0)
+and must match the index shown in the criteria list (0, 1, 2, etc.).
 Do not skip any criteria.
 
 Do NOT provide an overall score - only evaluate each criterion.
@@ -84,7 +84,7 @@ Respond ONLY with valid JSON in this exact format:
 {
   "criteria_evaluations": [
     {
-      "criterion_number": 1,
+      "criterion_number": 0,
       "explanation": "Brief explanation",
       "criterion_status": "MET"
     },
@@ -118,7 +118,7 @@ class PerCriterionOneShotGrader(Autograder):
         self, to_grade: str, rubric: list[Criterion], query: str | None = None
     ) -> list[CriterionReport]:
         criteria_lines = []
-        for index, criterion in enumerate(rubric, start=1):
+        for index, criterion in enumerate(rubric):
             criterion_type = (
                 "NEGATIVE (status MET if error IS present, UNMET if error is NOT present)"
                 if criterion.weight < 0
@@ -154,7 +154,7 @@ Provide your evaluation as JSON only."""
 
         # Build criterion reports matching rubric order
         criterion_reports: list[CriterionReport] = []
-        for index, criterion in enumerate(rubric, start=1):
+        for index, criterion in enumerate(rubric):
             eval_item = evaluation_map.get(index)
 
             if eval_item:

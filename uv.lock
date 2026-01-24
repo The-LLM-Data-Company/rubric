@@ -578,7 +578,7 @@ wheels = [
 
 [[package]]
 name = "rubric"
-version = "2.0.1"
+version = "2.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "google-genai" },

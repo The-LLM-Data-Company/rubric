@@ -28,11 +28,11 @@ async def test_per_criterion_one_shot_grader_with_negative_criterion_unmet(sampl
     async def generate_with_issue(system_prompt: str, user_prompt: str) -> OneShotOutput:
         return OneShotOutput(
             criteria_evaluations=[
+                CriterionEvaluation(criterion_number=0, criterion_status="MET", explanation="Test"),
                 CriterionEvaluation(criterion_number=1, criterion_status="MET", explanation="Test"),
                 CriterionEvaluation(criterion_number=2, criterion_status="MET", explanation="Test"),
-                CriterionEvaluation(criterion_number=3, criterion_status="MET", explanation="Test"),
                 CriterionEvaluation(
-                    criterion_number=4,
+                    criterion_number=3,
                     criterion_status="UNMET",
                     explanation="Error not present",
                 ),
@@ -64,17 +64,17 @@ async def test_all_negative_criteria_all_unmet_returns_perfect_score():
         return OneShotOutput(
             criteria_evaluations=[
                 CriterionEvaluation(
-                    criterion_number=1,
+                    criterion_number=0,
                     criterion_status="UNMET",
                     explanation="No errors",
                 ),
                 CriterionEvaluation(
-                    criterion_number=2,
+                    criterion_number=1,
                     criterion_status="UNMET",
                     explanation="No profanity",
                 ),
                 CriterionEvaluation(
-                    criterion_number=3,
+                    criterion_number=2,
                     criterion_status="UNMET",
                     explanation="No harmful content",
                 ),
@@ -103,10 +103,10 @@ async def test_all_negative_criteria_all_met_returns_zero_score():
         return OneShotOutput(
             criteria_evaluations=[
                 CriterionEvaluation(
-                    criterion_number=1, criterion_status="MET", explanation="Has errors"
+                    criterion_number=0, criterion_status="MET", explanation="Has errors"
                 ),
                 CriterionEvaluation(
-                    criterion_number=2,
+                    criterion_number=1,
                     criterion_status="MET",
                     explanation="Has profanity",
                 ),

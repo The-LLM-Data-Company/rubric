@@ -82,7 +82,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 class CriterionEvaluation(BaseModel):
-    criterion_number: int  # 1-based index
+    criterion_number: int  # 0-based index
     criterion_status: Literal["MET", "UNMET"]
     explanation: str
 
@@ -160,7 +160,7 @@ async def my_generate_fn(
     return OneShotOutput(
         criteria_evaluations=[
             CriterionEvaluation(
-                criterion_number=1,
+                criterion_number=0,
                 criterion_status="MET",
                 explanation="First criterion satisfied"
             ),

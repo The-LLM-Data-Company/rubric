@@ -79,20 +79,16 @@ Used by `PerCriterionOneShotGrader` for batch evaluation:
 
 ```python
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 class CriterionEvaluation(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    criterion_idx: int = Field(validation_alias="criterion_number")  # 0-based index
+    criterion_idx: int  # 0-based index
     criterion_status: Literal["MET", "UNMET"]
     explanation: str
 
 class OneShotOutput(BaseModel):
     criteria_evaluations: list[CriterionEvaluation] = Field(min_length=1)
 ```
-
-Note: `validation_alias="criterion_number"` allows JSON with the old field name to deserialize correctly for backwards compatibility, while the JSON schema shows `criterion_idx`.
 
 ### `RubricAsJudgeOutput`
 Used by `RubricAsJudgeGrader` for holistic scoring:

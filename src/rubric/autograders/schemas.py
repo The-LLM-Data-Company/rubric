@@ -7,7 +7,7 @@ decoding in their LLM clients.
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 
 class PerCriterionOutput(BaseModel):
@@ -37,10 +37,7 @@ class CriterionEvaluation(BaseModel):
     Used by OneShotOutput to represent each criterion's verdict.
     """
 
-    model_config = ConfigDict(populate_by_name=True)
-
     criterion_idx: int = Field(
-        validation_alias="criterion_number",
         description="The 0-based index of the criterion being evaluated.",
     )
     explanation: str = Field(

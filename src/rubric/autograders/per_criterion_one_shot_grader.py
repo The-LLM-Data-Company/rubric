@@ -16,7 +16,7 @@ criteria.
 
 You will receive the response to evaluate, and a numbered list of criteria to check (numbered \
 0, 1, 2, etc.). Each criterion is marked as POSITIVE or NEGATIVE. You must evaluate each \
-criterion and return results with criterion_number matching the indices in the list.
+criterion and return results with criterion_idx matching the indices in the list.
 
 CRITERION TYPES:
 Each criterion is marked as positive or negative. Your job is THE SAME for both types: determine \
@@ -70,11 +70,11 @@ error is not present.",
 }
 
 For each criterion, provide:
-- The criterion_number (0-indexed, matching the index from the criteria list above)
+- The criterion_idx (0-indexed, matching the index from the criteria list above)
 - An explanation containing a brief justification
 - A criterion_status (MET or UNMET)
 
-IMPORTANT: You must evaluate ALL criteria provided. The criterion_number is 0-indexed (starts at 0)
+IMPORTANT: You must evaluate ALL criteria provided. The criterion_idx is 0-indexed (starts at 0)
 and must match the index shown in the criteria list (0, 1, 2, etc.).
 Do not skip any criteria.
 
@@ -84,7 +84,7 @@ Respond ONLY with valid JSON in this exact format:
 {
   "criteria_evaluations": [
     {
-      "criterion_number": 0,
+      "criterion_idx": 0,
       "explanation": "Brief explanation",
       "criterion_status": "MET"
     },
@@ -147,9 +147,9 @@ Provide your evaluation as JSON only."""
         # Call generate_fn - user handles validation and retries
         result: OneShotOutput = await self.generate_fn(self.system_prompt, user_prompt)
 
-        # Create a mapping from criterion_number to evaluation
+        # Create a mapping from criterion_idx to evaluation
         evaluation_map = {
-            eval_item.criterion_number: eval_item for eval_item in result.criteria_evaluations
+            eval_item.criterion_idx: eval_item for eval_item in result.criteria_evaluations
         }
 
         # Build criterion reports matching rubric order

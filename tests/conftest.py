@@ -119,7 +119,7 @@ def one_shot_generate_fn(sample_criteria: CriterionList) -> OneShotGenerateFn:
                 explanation = "Requirement satisfied by the submission."
             evaluations.append(
                 CriterionEvaluation(
-                    criterion_number=index,
+                    criterion_idx=index,
                     criterion_status=criterion_status,
                     explanation=explanation,
                 )
